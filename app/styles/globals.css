@@ -1,0 +1,350 @@
+/* Tailwind v4 core */
+@import "tailwindcss";
+
+/* ------------------------------
+   THEME TOKENS (Tailwind v4)
+   - Light is default
+   - Dark is via prefers-color-scheme AND/OR html[data-theme="dark"]
+   ------------------------------ */
+@theme {
+  /* Fonts (wired to next/font variables you add on <body>) */
+  --font-sans:
+    var(--font-sans), ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto,
+    Inter, "Helvetica Neue", Arial, "Noto Sans";
+  --font-display: var(--font-display), Cinzel, ui-serif, Georgia, serif;
+
+  /* ===== Light defaults ===== */
+  --color-bg: #f7f8fb;
+  --color-surface: #ffffff;
+  --color-elevated: #f1f3f8;
+
+  --color-ink-100: #0b1220;
+  --color-ink-300: #38465a;
+  --color-ink-500: #607089;
+
+  /* Golds (stars/accents) */
+  --color-gold-300: #fde68a;
+  --color-gold-400: #ffd166;
+  --color-gold-500: #f5c84c; /* main star gold */
+  --color-gold-700: #9e7c2a;
+
+  /* Warm accents */
+  --color-ember-500: #fb923c;
+  --color-amber-600: #f59e0b;
+
+  /* FIX: you had coral duplicated; keep one */
+  --color-coral-500: #d84226;
+
+  /* Cool accents */
+  --color-aurora-400: #00bcd4;
+  --color-teal-400: #2dd4bf;
+  --color-purple-600: #311b92;
+  --color-purple-500: #673ab7;
+  --color-purple-400: #5856d6;
+  --color-pink-500: #ad1457;
+  --color-pink-400: #e91e63;
+  /* --color-pink-200: #f8bbd0; */
+
+  /* FIX: use consistent casing */
+  --color-gray-500: #9aa4b2;
+  --color-gray-600: #6b7280;
+  --color-gray-800: #111827;
+  --color-griy-900: #0e1621;
+  --color-griy-950: #424242;
+
+  /* Status */
+  --color-success-500: #16a34a;
+  --color-warning-500: #f59e0b;
+  --color-danger-500: #ef4444;
+  --color-info-500: #38bdf8;
+
+  /* Shadows */
+  --shadow-gold: 0 0 24px rgba(245, 200, 76, 0.25);
+  --shadow-gold-lg: 0 0 36px rgba(245, 200, 76, 0.35);
+}
+
+/* ===== System dark defaults (no cookie set) ===== */
+/* ===== System theme (ONLY when there is NO explicit data-theme) ===== */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme]) {
+    color-scheme: dark;
+    /* --color-bg: #00000061; */
+
+    --color-bg: #0e1621;
+    --color-surface: #111927;
+    --color-elevated: #1a2433;
+
+    --color-ink-100: #e8ecf4;
+    --color-ink-300: #b2bdcd;
+    --color-ink-500: #7a889c;
+    --color-pink-200: #f8bbd0;
+
+    --color-gray-500: #424242;
+    --color-gray-600: #303030;
+    --color-gray-800: #111827 /* --color-gray-800: #000000; */;
+  }
+}
+
+/* ===== Forced Light (cookie / explicit) ===== */
+:root[data-theme="light"] {
+  color-scheme: light;
+
+  --color-bg: #f7f8fb;
+  --color-surface: #ffffff;
+  --color-elevated: #f1f3f8;
+
+  --color-ink-100: #0b1220;
+  --color-ink-300: #38465a;
+  --color-ink-500: #607089;
+  --color-pink-200: #311b92;
+
+  --color-gray-500: #9aa4b2;
+  --color-gray-600: #6b7280;
+  --color-gray-800: #ffffff;
+  /* --color-gray-800: #111827; */
+}
+
+/* ===== Forced Dark (cookie / explicit) ===== */
+:root[data-theme="dark"] {
+  color-scheme: dark;
+
+  /* --color-bg: #00000061; */
+  --color-bg: #0e1621;
+  --color-surface: #111927;
+  --color-elevated: #1a2433;
+
+  --color-ink-100: #e8ecf4;
+  --color-ink-300: #b2bdcd;
+  --color-ink-500: #7a889c;
+  --color-pink-200: #f8bbd0;
+
+  --color-gray-500: #424242;
+  --color-gray-600: #303030;
+  --color-gray-800: #000000;
+}
+
+/* If you want to explicitly force light, you can also restate here,
+   but default :root already is light. */
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+@layer utilities {
+  .bg-pinky-gradient {
+    background-image: linear-gradient(90deg, #e91e63 100%, #f8bbd0 100%);
+  }
+  .bg-light-gradient {
+    background-image: linear-gradient(
+      135deg,
+      #00bcd4 0%,
+      #b2ebf2 100%,
+      #d1c4e9 100%
+    );
+  }
+}
+
+/* ------------------------------
+   CUSTOM UTILITIES (v4)
+   ------------------------------ */
+@utility bg-gold-gradient {
+  background-image: linear-gradient(
+    90deg,
+    var(--color-gold-500) 0%,
+    var(--color-amber-600) 100%
+  );
+}
+@utility bg-brand-gradient {
+  background-image: linear-gradient(90deg, #00bcd4 100%, #673ab7 100%);
+}
+
+@utility bg-nebula-gradient {
+  background-image: linear-gradient(
+    135deg,
+    color-mix(in oklab, var(--color-gold-500) 22%, transparent),
+    color-mix(in oklab, #a78bfa 12%, transparent) 45%,
+    color-mix(in oklab, var(--color-info-500) 10%, transparent) 100%
+  );
+}
+
+@utility text-shadow-gold {
+  text-shadow: 0 0 22px rgba(245, 200, 76, 0.28);
+}
+
+/* ------------------------------
+   BASE
+   ------------------------------ */
+@layer base {
+  html,
+  body,
+  #__next,
+  #root {
+    height: 100%;
+  }
+
+  body {
+    @apply bg-bg text-ink-100 antialiased;
+    font-family: var(--font-display);
+  }
+
+  ::selection {
+    background: rgba(245, 200, 76, 0.28);
+    color: var(--color-ink-100);
+  }
+
+  a {
+    color: var(--color-aurora-400);
+  }
+  a:hover {
+    color: var(--color-gold-400);
+  }
+}
+
+/* ------------------------------
+   COMPONENT HELPERS
+   ------------------------------ */
+@layer components {
+  .surface {
+    background-color: color-mix(in oklab, var(--color-surface) 88%, black 12%);
+    @apply rounded-2xl border border-white/5 backdrop-blur-sm;
+  }
+
+  .card {
+    background-color: color-mix(in oklab, var(--color-surface) 72%, black 28%);
+    @apply rounded-2xl border border-white/5 p-6 lg:min-w-100;
+  }
+
+  .btn {
+    @apply inline-flex items-center justify-center rounded-xl px-5 py-2.5 font-medium transition cursor-pointer w-full;
+  }
+
+  .btn-theme {
+    @apply h-8 w-8 rounded-full cursor-pointer;
+  }
+
+  .btn-primary {
+    @apply bg-[#311b92] text-black text-white;
+  }
+  .btn-primary:hover {
+    /* box-shadow: var(--shadow-gold-lg); */
+    transform: translateY(-0.5px);
+  }
+
+  .btn-ghost {
+    @apply border border-white/10 text-ink-100;
+    background: transparent;
+  }
+  .btn-ghost:hover {
+    background: rgba(255, 255, 255, 0.04);
+  }
+
+  .headline-gradient {
+    @apply text-transparent bg-clip-text bg-gold-gradient;
+  }
+
+  .nebula-overlay {
+    @apply bg-nebula-gradient;
+  }
+
+  .logo-mark {
+    @apply font-display font-black tracking-[0.06em] leading-none text-transparent bg-clip-text bg-gold-gradient text-shadow-gold;
+  }
+  .body-text {
+    @apply font-sans;
+  }
+
+  /* 1) The input never shows border/ring/outline (any state) */
+  .input {
+    @apply w-full bg-bg border-0 outline-none ring-0 shadow-none h-full px-4 py-3 rounded-lg;
+  }
+
+  .input:focus,
+  .input:focus-visible,
+  .input:active {
+    @apply border-0 outline-none ring-0 shadow-none;
+  }
+
+  /* If your project has browser-specific inner shadows (Safari/Chrome autofill) */
+  .input:-webkit-autofill {
+    -webkit-text-fill-color: var(--color-ink-100);
+    transition: background-color 9999s ease-in-out 0s;
+    box-shadow: 0 0 0px 1000px transparent inset;
+  }
+
+  /* 2) Parent gets the border when any child (input) is focused */
+  .input-wrap {
+    @apply rounded-lg border border-white/10 bg-surface   transition;
+  }
+
+  .input-wrap:focus-within {
+    @apply border-white/25;
+    /* optional "focus glow" */
+    box-shadow: 0 0 0 3px #6c51e5;
+  }
+
+  .input-wrap--error {
+    border-color: rgba(239, 68, 68, 0.45); /* danger */
+    box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.18);
+  }
+}
+
+/* ------------------------------
+   QUICK UTILS
+   ------------------------------ */
+@layer utilities {
+  .text-dim {
+    color: var(--color-ink-300);
+  }
+  .text-muted {
+    color: var(--color-ink-500);
+  }
+
+  .bg-bg {
+    background-color: var(--color-bg);
+  }
+  .bg-surface {
+    background-color: var(--color-surface);
+  }
+  .bg-elevated {
+    background-color: var(--color-elevated);
+  }
+
+  .shadow-gold {
+    box-shadow: var(--shadow-gold);
+  }
+  .shadow-gold-lg {
+    box-shadow: var(--shadow-gold-lg);
+  }
+}
+
+@layer utilities {
+  @keyframes shimmer {
+    0% {
+      background-position: -200% 0;
+    }
+    100% {
+      background-position: 200% 0;
+    }
+  }
+
+  .skeleton {
+    background-image: linear-gradient(
+      90deg,
+      rgba(255, 255, 255, 0.06) 0%,
+      rgba(255, 255, 255, 0.12) 50%,
+      rgba(255, 255, 255, 0.06) 100%
+    );
+    background-size: 200% 100%;
+    animation: shimmer 1.25s ease-in-out infinite;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .skeleton {
+      animation: none !important;
+    }
+  }
+}
