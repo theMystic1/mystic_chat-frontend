@@ -1,14 +1,23 @@
-import { getAccessToken } from "@/utils/tokens";
-import axios, { type AxiosInstance } from "axios";
+// lib/api/axios-server.ts
+import axios from "axios";
+import { cookies } from "next/headers";
+import { ACCESS_COOKIE } from "@/utils/tokens";
 
 export const createServerApi = async () => {
-  const token = await getAccessToken();
+  const baseURL = process.env.API_BASE_URL; // MUST be server env (no NEXT_PUBLIC required)
+  if (!baseURL) {
+    throw new Error(
+      "API_BASE_URL is not set (server). Set it in .env.local and restart.",
+    );
+  }
 
-  // console.log("token", token);
+  const cookieServer = await cookies();
+
+  const token = cookieServer.get(ACCESS_COOKIE)?.value;
 
   return axios.create({
-    baseURL: process.env.API_BASE_URL ?? process.env.NEXT_PUBLIC_API_BASE_URL,
+    baseURL,
     timeout: 30_000,
-    headers: token ? { Authorization: `Bearer ${token.trim()}` } : {},
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
   });
 };
