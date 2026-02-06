@@ -107,7 +107,9 @@ const Otp = () => {
       // TODO: call your verify endpoint
       const user = await verifyEmail(email!, code);
 
-      const mainUser = user.data.user;
+      console.log(user?.user);
+
+      const mainUser = user?.user?.data?.user || user?.data;
 
       console.log(mainUser);
       toast.remove();

@@ -4,6 +4,9 @@ import "./styles/globals.css";
 import { cookies } from "next/headers";
 import ClientLayout from "@/components/ui/client-layout";
 import { Toaster } from "react-hot-toast";
+import { WsProvider } from "@/contexts/ws-context";
+import { ACCESS_COOKIE } from "@/utils/tokens";
+import UserProvider from "@/contexts/user-cintext";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -33,10 +36,20 @@ export default async function RootLayout({
   // If cookie is missing, we do NOT set data-theme so system preference applies.
   const dataTheme = theme === "light" || theme === "dark" ? theme : undefined;
 
+  const token = CookiesTheme.get(ACCESS_COOKIE)?.value;
+
   return (
     <html lang="en" data-theme={dataTheme}>
       <body>
-        <ClientLayout>{children}</ClientLayout>
+        {token ? (
+          <WsProvider token={token}>
+            <UserProvider token={token}>
+              <ClientLayout>{children}</ClientLayout>
+            </UserProvider>
+          </WsProvider>
+        ) : (
+          <ClientLayout>{children}</ClientLayout>
+        )}
 
         <Toaster
           toastOptions={{
