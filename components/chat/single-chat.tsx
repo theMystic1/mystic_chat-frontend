@@ -163,11 +163,14 @@ const ChatPane = ({
       if (cid !== chatId) return;
 
       setMessages((prev) =>
-        prev.map((m) =>
-          messageIds.includes(String(m._id))
+        prev.map((m) => {
+          const isMine = String(m.senderId) === String(user?._id);
+          if (!isMine) return m;
+
+          return messageIds.includes(String(m._id))
             ? { ...m, deliveryStatus: "delivered", localStatus: "sent" }
-            : m,
-        ),
+            : m;
+        }),
       );
       return;
     }
@@ -177,11 +180,14 @@ const ChatPane = ({
       if (cid !== chatId) return;
 
       setMessages((prev) =>
-        prev.map((m) =>
-          messageIds.includes(String(m._id))
+        prev.map((m) => {
+          const isMine = String(m.senderId) === String(user?._id);
+          if (!isMine) return m;
+
+          return messageIds.includes(String(m._id))
             ? { ...m, deliveryStatus: "read", localStatus: "sent" }
-            : m,
-        ),
+            : m;
+        }),
       );
       return;
     }
@@ -354,9 +360,7 @@ const ChatPane = ({
                             {/* ticks (only for my messages, and not failed) */}
                             {fromMe && m.localStatus !== "failed" && (
                               <span className="text-[10px]">
-                                <Checkmarks
-                                  status={m.deliveryStatus as "sent"}
-                                />
+                                <Checkmarks status={m.deliveryStatus as any} />
                               </span>
                             )}
 
