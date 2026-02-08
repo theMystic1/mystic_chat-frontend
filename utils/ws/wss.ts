@@ -1,6 +1,7 @@
 "use client";
 
 export type ChatDTO = {
+  _id?: string;
   id: string;
   type: "dm" | "group";
   members: string[];
@@ -17,6 +18,7 @@ export type MessageDTO = {
   attachments?: { kind: "image" | "file"; url: string }[];
 };
 
+// ✅ Server -> Client events
 export type ServerEvent =
   | { type: "welcome"; data: string }
   | { type: "auth_ok"; data: { userId: string } }
@@ -31,14 +33,6 @@ export type ServerEvent =
       data: { chatId: string; messageId: string; deliveredTo: string };
     }
   | {
-      type: "messages_delivered";
-      data: { chatId: string; messageIds: string; deliveredTo: string };
-    }
-  | {
-      type: "messages_read";
-      data: { chatId: string; messageIds: string; deliveredTo: string };
-    }
-  | {
       type: "message_read";
       data: {
         chatId: string;
@@ -47,25 +41,42 @@ export type ServerEvent =
         readAt: string;
       };
     }
+  | {
+      type: "messages_delivered";
+      data: { chatId: string; messageIds: string[]; deliveredTo: string };
+    }
+  | {
+      type: "messages_read";
+      data: {
+        chatId: string;
+        messageIds: string[];
+        readBy: string;
+        readAt: string;
+      };
+    }
   | { type: "typing_start"; data: { chatId: string; userId: string } }
-  | { type: "typing_stop"; data: { chatId: string; userId: string } };
+  | { type: "typing_stop"; data: { chatId: string; userId: string } }
+  // ✅ Presence snapshot + incremental updates
+  | { type: "presence_state"; data: { onlineUserIds: string[] } }
+  | { type: "presence_online"; data: { userId: string } }
+  | { type: "presence_offline"; data: { userId: string } };
 
+// ✅ Client -> Server events
 export type ClientEvent =
   | { type: "auth"; token: string }
   | { type: "join_chat"; chatId: string }
   | { type: "leave_chat"; chatId: string }
   | { type: "ack_delivered"; chatId: string; messageId: string }
   | { type: "ack_read"; chatId: string; messageId: string }
-  | { type: "typing_start"; chatId: string }
-  | { type: "typing_stop"; chatId: string }
   | { type: "ack_delivered_all"; chatId: string }
-  | { type: "ack_read_all"; chatId: string };
+  | { type: "ack_read_all"; chatId: string }
+  | { type: "typing_start"; chatId: string }
+  | { type: "typing_stop"; chatId: string };
 
 type Listener = (evt: ServerEvent) => void;
-
 const WS_READY = () => typeof window !== "undefined";
 
-type WsState = {
+export type WsState = {
   connected: boolean;
   authed: boolean;
   token: string | null;
@@ -78,43 +89,75 @@ export class WsClient {
   private listeners = new Set<Listener>();
   private url: string;
 
-  // state
   private authed = false;
   private token: string | null = null;
   private userId: string | null = null;
   private pendingJoins = new Set<string>();
 
+  private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private manuallyClosed = false;
+
   constructor(url: string) {
     this.url = url;
   }
 
-  // ---------- public API ----------
+  // ---- events ----
   public on = (fn: Listener) => {
     this.listeners.add(fn);
     return () => this.listeners.delete(fn);
   };
 
-  /** ✅ use this from React code instead of touching private send() */
-  public emitClient = (payload: ClientEvent) => {
-    this.send(payload);
+  private emit = (evt: ServerEvent) => {
+    for (const fn of this.listeners) fn(evt);
   };
 
+  // ---- low-level send ----
+  private send = (payload: ClientEvent) => {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
+    this.ws.send(JSON.stringify(payload));
+  };
+
+  private clearReconnect = () => {
+    if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
+    this.reconnectTimer = null;
+  };
+
+  private scheduleReconnect = () => {
+    this.clearReconnect();
+    this.reconnectTimer = setTimeout(() => {
+      if (this.token) this.connect(this.token);
+    }, 800);
+  };
+
+  /**
+   * ✅ CONNECT
+   * - if token changes while connected, force reconnect
+   * - if token unchanged, reuse connection + re-auth if needed
+   */
   public connect = (token: string) => {
     if (!WS_READY()) return;
 
+    const tokenChanged = this.token !== null && token !== this.token;
     this.token = token;
+    this.manuallyClosed = false;
 
-    // avoid duplicate connections
+    // If already open/connecting:
     if (
       this.ws &&
       (this.ws.readyState === WebSocket.OPEN ||
         this.ws.readyState === WebSocket.CONNECTING)
     ) {
-      // re-auth if needed
-      if (!this.authed) this.send({ type: "auth", token });
-      return;
+      if (tokenChanged) {
+        // safest: drop and reconnect cleanly with the new token
+        this.disconnect();
+      } else {
+        // same token: just ensure auth
+        if (!this.authed) this.send({ type: "auth", token });
+        return;
+      }
     }
 
+    this.clearReconnect();
     this.ws = new WebSocket(this.url);
 
     this.ws.onopen = () => {
@@ -126,13 +169,13 @@ export class WsClient {
     this.ws.onmessage = (m) => {
       try {
         const evt = JSON.parse(m.data) as ServerEvent;
-        this.emitServer(evt);
+        this.emit(evt);
 
         if (evt.type === "auth_ok") {
           this.authed = true;
           this.userId = evt.data.userId;
 
-          // replay joins
+          // replay joins after auth
           for (const chatId of this.pendingJoins) {
             this.send({ type: "join_chat", chatId });
           }
@@ -143,34 +186,42 @@ export class WsClient {
           this.userId = null;
         }
       } catch {
-        // ignore bad payloads
+        // ignore bad payload
       }
     };
 
     this.ws.onclose = () => {
       this.authed = false;
       this.userId = null;
+      this.ws = null;
 
-      // simple reconnect with backoff
-      setTimeout(() => {
-        if (this.token) this.connect(this.token);
-      }, 800);
+      if (this.manuallyClosed) return;
+      this.scheduleReconnect();
     };
 
     this.ws.onerror = () => {
-      // let onclose handle reconnect
+      // onclose handles reconnect
     };
   };
 
   public disconnect = () => {
-    this.token = null;
+    this.manuallyClosed = true;
+    this.clearReconnect();
+
     this.authed = false;
     this.userId = null;
     this.pendingJoins.clear();
-    this.ws?.close();
+    this.token = null;
+
+    try {
+      this.ws?.close();
+    } catch {
+      // ignore
+    }
     this.ws = null;
   };
 
+  // ---- rooms ----
   public joinChat = (chatId: string) => {
     this.pendingJoins.add(chatId);
     if (this.authed) this.send({ type: "join_chat", chatId });
@@ -181,32 +232,39 @@ export class WsClient {
     if (this.authed) this.send({ type: "leave_chat", chatId });
   };
 
-  // Convenience helpers (optional)
+  // ---- acks ----
   public ackDelivered = (chatId: string, messageId: string) => {
-    this.emitClient({ type: "ack_delivered", chatId, messageId });
+    if (!this.authed) return;
+    this.send({ type: "ack_delivered", chatId, messageId });
   };
 
   public ackRead = (chatId: string, messageId: string) => {
-    this.emitClient({ type: "ack_read", chatId, messageId });
+    if (!this.authed) return;
+    this.send({ type: "ack_read", chatId, messageId });
   };
 
-  public typingStart = (chatId: string) => {
-    this.emitClient({ type: "typing_start", chatId });
-  };
-
-  public typingStop = (chatId: string) => {
-    this.emitClient({ type: "typing_stop", chatId });
-  };
-
-  // WsClient.ts
-  ackDeliveredAll = (chatId: string) => {
+  public ackDeliveredAll = (chatId: string) => {
+    if (!this.authed) return;
     this.send({ type: "ack_delivered_all", chatId });
   };
 
-  ackReadAll = (chatId: string) => {
+  public ackReadAll = (chatId: string) => {
+    if (!this.authed) return;
     this.send({ type: "ack_read_all", chatId });
   };
 
+  // ---- typing ----
+  public typingStart = (chatId: string) => {
+    if (!this.authed) return;
+    this.send({ type: "typing_start", chatId });
+  };
+
+  public typingStop = (chatId: string) => {
+    if (!this.authed) return;
+    this.send({ type: "typing_stop", chatId });
+  };
+
+  // ---- debug ----
   public getState = (): WsState => {
     const connected = this.ws?.readyState === WebSocket.OPEN;
     return {
@@ -216,17 +274,5 @@ export class WsClient {
       userId: this.userId,
       joinedChats: Array.from(this.pendingJoins),
     };
-  };
-
-  public getJoinedChats = () => Array.from(this.pendingJoins);
-
-  // ---------- internal ----------
-  private emitServer = (evt: ServerEvent) => {
-    for (const fn of this.listeners) fn(evt);
-  };
-
-  private send = (payload: ClientEvent) => {
-    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
-    this.ws.send(JSON.stringify(payload));
   };
 }

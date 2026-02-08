@@ -34,8 +34,8 @@ const UserProvider = ({
     setLoading(true);
     const getMe = async () => {
       try {
-        const user = await apiClient.get("/users/me");
-        setUser(user.data.data?.data);
+        const { data } = await apiClient.get("/users/me");
+        setUser(data?.data?.data);
       } catch (error) {
         console.error(error);
       } finally {

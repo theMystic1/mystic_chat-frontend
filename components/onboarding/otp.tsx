@@ -111,7 +111,7 @@ const Otp = () => {
 
       const mainUser = user?.user?.data?.user || user?.data;
 
-      console.log(mainUser);
+      // console.log(mainUser);
       toast.remove();
       toast.success(user?.message || "Signin successful");
 

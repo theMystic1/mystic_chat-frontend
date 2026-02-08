@@ -11,7 +11,7 @@ const ChatIndexPage = async () => {
     <div className="min-h-screen ">
       {/* Mobile: show chat list */}
       <div className="lg:hidden h-full min-h-0 bg-surface">
-        <ChatSidebar chat={data?.data?.chats ?? []} />
+        <ChatSidebar />
       </div>
 
       {/* Desktop: empty state */}
