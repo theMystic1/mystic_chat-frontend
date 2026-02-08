@@ -6,6 +6,7 @@ import { createServerApi } from "@/lib/api/axios-server";
 const ChatByIdPage = async ({ params }: { params: { chatId: string } }) => {
   const chatParams = await params;
 
+  // console.log(chatParams);
   const server = await createServerApi();
   let chatData;
   try {

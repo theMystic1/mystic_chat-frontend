@@ -8,6 +8,10 @@ type Ctx = {
   ws: WsClient | null;
   lastEvent: ServerEvent | null;
 
+  // ✅ presence
+  onlineUserIds: Set<string>;
+  isOnline: (userId?: string | null) => boolean;
+
   // wrappers (so components don't touch private send)
   joinChat: (chatId: string) => void;
   leaveChat: (chatId: string) => void;
@@ -28,6 +32,11 @@ export const WsProvider = ({
 }) => {
   const [lastEvent, setLastEvent] = React.useState<ServerEvent | null>(null);
 
+  // ✅ presence state
+  const [onlineUserIds, setOnlineUserIds] = React.useState<Set<string>>(
+    () => new Set(),
+  );
+
   // create client once
   const ws = React.useMemo(() => {
     const url = process.env.NEXT_PUBLIC_WS_URL!;
@@ -35,7 +44,38 @@ export const WsProvider = ({
   }, []);
 
   React.useEffect(() => {
-    const off = ws.on((evt) => setLastEvent(evt));
+    const off = ws.on((evt) => {
+      setLastEvent(evt);
+
+      // ✅ presence snapshot (critical for “user was online before I connected”)
+      if (evt.type === "presence_state") {
+        const ids = (evt.data?.onlineUserIds ?? []).map(String);
+        setOnlineUserIds(new Set(ids));
+        return;
+      }
+
+      // ✅ incremental presence updates
+      if (evt.type === "presence_online") {
+        const id = String(evt.data.userId);
+        setOnlineUserIds((prev) => {
+          const next = new Set(prev);
+          next.add(id);
+          return next;
+        });
+        return;
+      }
+
+      if (evt.type === "presence_offline") {
+        const id = String(evt.data.userId);
+        setOnlineUserIds((prev) => {
+          const next = new Set(prev);
+          next.delete(id);
+          return next;
+        });
+        return;
+      }
+    });
+
     ws.connect(token);
 
     return () => {
@@ -44,7 +84,15 @@ export const WsProvider = ({
     };
   }, [ws, token]);
 
-  // ✅ IMPORTANT: call methods on `ws`, not on the wrapper name
+  const isOnline = React.useCallback(
+    (userId?: string | null) => {
+      if (!userId) return false;
+      return onlineUserIds.has(String(userId));
+    },
+    [onlineUserIds],
+  );
+
+  // wrappers
   const joinChat = React.useCallback(
     (chatId: string) => ws.joinChat(chatId),
     [ws],
@@ -55,7 +103,6 @@ export const WsProvider = ({
     [ws],
   );
 
-  // these require you to expose public methods on WsClient (see below)
   const ackDelivered = React.useCallback(
     (chatId: string, messageId: string) => ws.ackDelivered(chatId, messageId),
     [ws],
@@ -81,6 +128,10 @@ export const WsProvider = ({
       value={{
         ws,
         lastEvent,
+
+        onlineUserIds,
+        isOnline,
+
         joinChat,
         leaveChat,
         ackDelivered,

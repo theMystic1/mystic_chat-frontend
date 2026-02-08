@@ -1,6 +1,7 @@
 "use client";
 
 export type ChatDTO = {
+  _id?: string;
   id: string;
   type: "dm" | "group";
   members: string[];
@@ -17,6 +18,7 @@ export type MessageDTO = {
   attachments?: { kind: "image" | "file"; url: string }[];
 };
 
+// ✅ Server -> Client events
 export type ServerEvent =
   | { type: "welcome"; data: string }
   | { type: "auth_ok"; data: { userId: string } }
@@ -31,10 +33,6 @@ export type ServerEvent =
       data: { chatId: string; messageId: string; deliveredTo: string };
     }
   | {
-      type: "messages_delivered";
-      data: { chatId: string; messageIds: string[]; deliveredTo: string };
-    }
-  | {
       type: "message_read";
       data: {
         chatId: string;
@@ -42,6 +40,10 @@ export type ServerEvent =
         readBy: string;
         readAt: string;
       };
+    }
+  | {
+      type: "messages_delivered";
+      data: { chatId: string; messageIds: string[]; deliveredTo: string };
     }
   | {
       type: "messages_read";
@@ -53,18 +55,23 @@ export type ServerEvent =
       };
     }
   | { type: "typing_start"; data: { chatId: string; userId: string } }
-  | { type: "typing_stop"; data: { chatId: string; userId: string } };
+  | { type: "typing_stop"; data: { chatId: string; userId: string } }
+  // ✅ Presence snapshot + incremental updates
+  | { type: "presence_state"; data: { onlineUserIds: string[] } }
+  | { type: "presence_online"; data: { userId: string } }
+  | { type: "presence_offline"; data: { userId: string } };
 
+// ✅ Client -> Server events
 export type ClientEvent =
   | { type: "auth"; token: string }
   | { type: "join_chat"; chatId: string }
   | { type: "leave_chat"; chatId: string }
   | { type: "ack_delivered"; chatId: string; messageId: string }
   | { type: "ack_read"; chatId: string; messageId: string }
-  | { type: "typing_start"; chatId: string }
-  | { type: "typing_stop"; chatId: string }
   | { type: "ack_delivered_all"; chatId: string }
-  | { type: "ack_read_all"; chatId: string };
+  | { type: "ack_read_all"; chatId: string }
+  | { type: "typing_start"; chatId: string }
+  | { type: "typing_stop"; chatId: string };
 
 type Listener = (evt: ServerEvent) => void;
 const WS_READY = () => typeof window !== "undefined";
@@ -123,7 +130,7 @@ export class WsClient {
   };
 
   /**
-   * ✅ CONNECT (fixed)
+   * ✅ CONNECT
    * - if token changes while connected, force reconnect
    * - if token unchanged, reuse connection + re-auth if needed
    */

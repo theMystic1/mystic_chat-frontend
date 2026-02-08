@@ -92,16 +92,16 @@ const Modal = ({
             ) : null}
           </div>
 
-          {/* <div>
+          <div>
             <button
               type="button"
               onClick={onClose}
-              className="h-6 w-6 items-center justify-center text-center rounded-full btn-ghost px-3 py-2 text-xs shrink-0"
+              className="h-6 w-6 absolute right-4 items-center justify-center text-center rounded-full  px-3 py-2 text-xs shrink-0"
               aria-label="Close"
             >
               ✕
             </button>
-          </div> */}
+          </div>
         </div>
 
         {children ? <div className="mt-5">{children}</div> : null}

@@ -55,5 +55,5 @@ export default function Checkmarks({ status }: { status: DeliveryStatus }) {
   if (status === "delivered") return <DoubleTick className="text-black/70" />;
 
   // ✅ read
-  return <DoubleTick className="text-emerald-500" />;
+  return <DoubleTick className="text-white" />;
 }

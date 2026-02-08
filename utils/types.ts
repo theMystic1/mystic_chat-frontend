@@ -92,6 +92,7 @@ export type UserType = {
   signinAt: string;
   bio?: string;
   displayName?: string;
+  lastSeenAt?: Date;
 };
 
 type MessageStatus = "sent" | "delivered" | "read" | "failed" | "queued";
@@ -120,6 +121,9 @@ export type MessageRes = {
 
   attachments: Attachment[]; // currently empty arrays
   replyToMessageId: ObjectIdString | null;
+
+  deliveredTo: string[];
+  readBy: string[];
 
   editedAt: string | null;
   deletedAt: string | null;

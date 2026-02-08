@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
-import "./styles/globals.css";
+import "@/styles/globals.css";
 import { cookies } from "next/headers";
 import ClientLayout from "@/components/ui/client-layout";
 import { Toaster } from "react-hot-toast";
@@ -41,15 +41,11 @@ export default async function RootLayout({
   return (
     <html lang="en" data-theme={dataTheme}>
       <body>
-        {token ? (
-          <WsProvider token={token}>
-            <UserProvider token={token}>
-              <ClientLayout>{children}</ClientLayout>
-            </UserProvider>
-          </WsProvider>
-        ) : (
-          <ClientLayout>{children}</ClientLayout>
-        )}
+        <WsProvider token={token ?? ""}>
+          <UserProvider token={token ?? ""}>
+            <ClientLayout>{children}</ClientLayout>
+          </UserProvider>
+        </WsProvider>
 
         <Toaster
           toastOptions={{

@@ -21,8 +21,6 @@ export function ThemeToggle() {
     });
   }
 
-  console.log(theme);
-
   return (
     <div className="inline-flex items-center border border-ink-100 rounded-lg gap-2">
       <button

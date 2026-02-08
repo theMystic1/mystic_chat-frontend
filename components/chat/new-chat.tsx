@@ -3,6 +3,7 @@
 import * as React from "react";
 import { apiClient } from "@/lib/api/axios-client";
 import Modal from "../ui/modal";
+import { useRouter } from "next/navigation";
 
 type NewChatModalProps = {
   open: boolean;
@@ -14,6 +15,7 @@ const NewChatModal = ({ open, onClose, onCreated }: NewChatModalProps) => {
   const [value, setValue] = React.useState("");
   const [pending, setPending] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
+  const router = useRouter();
 
   React.useEffect(() => {
     if (!open) return;
@@ -32,15 +34,14 @@ const NewChatModal = ({ open, onClose, onCreated }: NewChatModalProps) => {
     setError(null);
 
     try {
-      // Choose ONE based on your server route:
-      // A) Body style: POST /api/chat { receiverId }
       const { data } = await apiClient.post("/chat", { receiver });
 
-      // B) Param style: POST /api/chat/:receiverId
-      // const { data } = await apiClient.post(`/chat/${encodeURIComponent(receiver)}`);
-
-      onCreated?.(data);
+      const chat = data?.data?.chat;
+      onCreated?.(chat);
+      // console.log(data?.data?.chat);
       onClose();
+      router.push(`/chat/${chat._id}`);
+      router.refresh();
     } catch (e: any) {
       setError(
         e?.response?.data?.message ??
