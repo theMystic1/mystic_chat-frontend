@@ -130,11 +130,13 @@ export function ChatSyncProvider({
       const c = lastEvent.data;
 
       setChats((prev) => {
-        const exists = prev.some((x) => String(x._id) === String(c.id));
+        const exists = prev.some(
+          (x) => String(x._id) === String(c.id ?? c._id),
+        );
         if (exists) return prev;
 
         const newChat: ChatListItem = {
-          _id: String(c._id),
+          _id: String(c.id ?? c._id),
           members: c.members,
           unreadCount: 0,
 
