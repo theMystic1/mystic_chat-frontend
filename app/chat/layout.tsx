@@ -16,9 +16,14 @@ const ChatLayout = async ({ children }: { children: ReactNode }) => {
 
   try {
     const { data } = await server.get("/chat");
+    const { data: user } = await server.get("/users/me");
 
     return (
-      <ChatLayoutClient token={token!} chat={data?.data?.chats ?? []}>
+      <ChatLayoutClient
+        token={token!}
+        chat={data?.data?.chats ?? []}
+        user={user?.data?.data}
+      >
         {children}
       </ChatLayoutClient>
     );

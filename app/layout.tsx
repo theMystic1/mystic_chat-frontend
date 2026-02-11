@@ -32,7 +32,7 @@ export default async function RootLayout({
 }) {
   const CookiesTheme = await cookies();
 
-  const theme = CookiesTheme.get("theme")?.value; // "light" | "dark" | undefined
+  const theme = await CookiesTheme.get("theme")?.value; // "light" | "dark" | undefined
   // If cookie is missing, we do NOT set data-theme so system preference applies.
   const dataTheme = theme === "light" || theme === "dark" ? theme : undefined;
 

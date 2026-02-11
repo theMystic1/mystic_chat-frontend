@@ -25,7 +25,7 @@ export const OtherUserModal = ({
 
   const currentAvatarSrc = avatarPreview || otherUser?.avatarUrl || undefined;
 
-  console.log(otherUser);
+  // console.log(otherUser);
 
   return (
     <ProfileModalShell
