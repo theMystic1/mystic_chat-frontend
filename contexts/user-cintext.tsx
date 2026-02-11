@@ -2,6 +2,7 @@
 
 import { apiClient } from "@/lib/api/axios-client";
 import { UserType } from "@/utils/types";
+import { useSearchParams } from "next/navigation";
 import {
   createContext,
   ReactNode,
@@ -13,11 +14,13 @@ import {
 type USERINFO = {
   user: UserType | null;
   loading: boolean;
+  setUser: React.Dispatch<React.SetStateAction<any>>;
 };
 
 const UserContext = createContext<USERINFO>({
   user: null,
   loading: false,
+  setUser: () => {},
 });
 
 const UserProvider = ({
@@ -29,6 +32,11 @@ const UserProvider = ({
 }) => {
   const [loading, setLoading] = useState(false);
   const [user, setUser] = useState(null);
+  const params = useSearchParams();
+
+  const refetch = params.get("refetch");
+
+  // console.log(user);
 
   useEffect(() => {
     setLoading(true);
@@ -44,9 +52,9 @@ const UserProvider = ({
     };
 
     getMe();
-  }, [token]);
+  }, [token, refetch]);
   return (
-    <UserContext.Provider value={{ loading, user }}>
+    <UserContext.Provider value={{ loading, user, setUser }}>
       {children}
     </UserContext.Provider>
   );

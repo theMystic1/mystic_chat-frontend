@@ -7,9 +7,13 @@ import CheckIcon from "@mui/icons-material/Check";
 import PhotoCameraIcon from "@mui/icons-material/PhotoCamera";
 import InfoOutlinedIcon from "@mui/icons-material/InfoOutlined";
 import { setThemeCookie, ThemeValue } from "@/utils/action";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { UserType } from "@/utils/types";
 import { getInitials } from "@/utils/helpers";
+import { apiClient } from "@/lib/api/axios-client";
+import toast from "react-hot-toast";
+import { useUser } from "@/contexts/user-cintext";
+import { Logout } from "@mui/icons-material";
 
 type UserLike = {
   _id?: string;
@@ -24,7 +28,7 @@ type UserLike = {
 type Props = {
   open: boolean;
   onClose: () => void;
-  user: UserLike | null;
+  user?: UserLike | null;
   /** call your API here; must NOT allow email changes */
   onSave: (payload: {
     displayName?: string;
@@ -37,9 +41,11 @@ type Props = {
 
 const clamp = (v: string, n: number) => v.slice(0, n);
 
-const WhatsAppSettingsModal = ({ open, onClose, user, onSave }: Props) => {
+const WhatsAppSettingsModal = ({ open, onClose, onSave }: Props) => {
   const [saving, setSaving] = React.useState(false);
-
+  const { user, loading, setUser } = useUser();
+  const router = useRouter();
+  const pathname = usePathname();
   // edit mode per field (WhatsApp style)
   const [edit, setEdit] = React.useState({
     name: false,
@@ -52,7 +58,6 @@ const WhatsAppSettingsModal = ({ open, onClose, user, onSave }: Props) => {
     displayName: "",
     userName: "",
     bio: "",
-    phone: "",
   });
 
   const [avatarFile, setAvatarFile] = React.useState<File | null>(null);
@@ -67,7 +72,6 @@ const WhatsAppSettingsModal = ({ open, onClose, user, onSave }: Props) => {
       displayName: user?.displayName ?? "",
       userName: user?.userName ?? "",
       bio: user?.bio ?? "",
-      phone: user?.phone ?? "",
     });
     setAvatarFile(null);
     setAvatarPreview(null);
@@ -92,18 +96,46 @@ const WhatsAppSettingsModal = ({ open, onClose, user, onSave }: Props) => {
   const save = async () => {
     if (!user) return;
     setSaving(true);
+
+    if (
+      form.displayName.trim() === user?.displayName?.trim() &&
+      form.userName.trim() === user?.userName?.trim() &&
+      !avatarFile &&
+      form.bio.trim() === user?.bio?.trim()
+    ) {
+      return;
+    }
     try {
-      await onSave({
+      const { data } = await apiClient.patch("/users/me", {
         displayName: form.displayName.trim(),
         userName: form.userName.trim(),
         bio: clamp(form.bio, 139).trim(),
-        phone: form.phone.trim(),
-        avatarFile,
+        // avatarFile,
       });
 
-      setEdit({ name: false, username: false, bio: false, phone: false });
+      const { user } = data;
+      console.log(data);
+      setEdit({
+        name: false,
+        username: false,
+        bio: false,
+        phone: false,
+      });
       setAvatarFile(null);
       setAvatarPreview(null);
+
+      setUser(user);
+      toast.remove();
+      toast.success("Profile updated successfully");
+      router.refresh();
+      router.push(`${pathname}?refetch=${Date.now().toString()}`);
+    } catch (err: any) {
+      console.error("Failed to save profile", err);
+      toast.remove();
+
+      toast.error(
+        err.response?.data?.message || err.message || "Failed to save profile",
+      );
     } finally {
       setSaving(false);
     }
@@ -115,7 +147,6 @@ const WhatsAppSettingsModal = ({ open, onClose, user, onSave }: Props) => {
       (form.displayName ?? "") !== (user.displayName ?? "") ||
       (form.userName ?? "") !== (user.userName ?? "") ||
       (form.bio ?? "") !== (user.bio ?? "") ||
-      (form.phone ?? "") !== (user.phone ?? "") ||
       !!avatarFile;
 
     return changed;
@@ -239,6 +270,12 @@ const WhatsAppSettingsModal = ({ open, onClose, user, onSave }: Props) => {
             <ThemePickerRow />
             <SectionTitle title="Account" />
             <ReadOnlyRow label="Email" value={user?.email ?? ""} />
+
+            <ReadOnlyRow
+              label="Logout"
+              value={"Signout of mystchats"}
+              logout={() => {}}
+            />
           </div>
         </div>
       </div>
@@ -253,9 +290,11 @@ export const SectionTitle = ({ title }: { title: string }) => {
 export const ReadOnlyRow = ({
   label,
   value,
+  logout,
 }: {
   label: string;
   value: string;
+  logout?: () => void;
 }) => {
   return (
     <div className="mb-3 rounded-2xl border border-white/10 bg-elevated px-4 py-3">
@@ -264,6 +303,18 @@ export const ReadOnlyRow = ({
           <p className="text-[11px] text-muted">{label}</p>
           <p className="truncate text-sm text-ink-100">{value || "—"}</p>
         </div>
+
+        {logout ? (
+          <div>
+            <button
+              className="btn btn-ghost px-2 py-2 flex items-center gap-2"
+              onClick={logout}
+              aria-label="Logout"
+            >
+              <Logout fontSize="small" /> <span>Logout</span>
+            </button>
+          </div>
+        ) : null}
       </div>
     </div>
   );

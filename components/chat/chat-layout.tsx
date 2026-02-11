@@ -2,17 +2,19 @@
 
 import * as React from "react";
 import ChatSidebar from "./chat-sidebar";
-import { Chat } from "@/utils/types";
+import { Chat, UserType } from "@/utils/types";
 import { ChatSyncProvider } from "@/contexts/chat-sync-context";
 
 const ChatLayoutClient = ({
   children,
   chat,
   token,
+  user,
 }: {
   children: React.ReactNode;
   chat: any[];
   token: string;
+  user?: UserType;
 }) => {
   return (
     <ChatSyncProvider initialChats={chat}>

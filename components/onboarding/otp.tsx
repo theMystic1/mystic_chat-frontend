@@ -6,6 +6,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { resendToken, verifyEmail } from "@/lib/api/calls/auth";
 import toast from "react-hot-toast";
 import { toApiError } from "@/utils/api-error";
+import { useUser } from "@/contexts/user-cintext";
 
 const OTP_LEN = 6;
 
@@ -15,7 +16,7 @@ const Otp = () => {
   const router = useRouter();
   const params = useSearchParams();
   const email = params.get("email");
-
+  const { setUser } = useUser();
   // simple resend timer (optional)
   const [seconds, setSeconds] = React.useState(45);
 
@@ -111,13 +112,16 @@ const Otp = () => {
 
       const mainUser = user?.user?.data?.user || user?.data;
 
-      // console.log(mainUser);
+      console.log(mainUser);
       toast.remove();
       toast.success(user?.message || "Signin successful");
 
+      setUser(mainUser);
       mainUser.isNewUser
         ? router.replace("/complete-profile")
         : router.replace("/");
+
+      router.refresh();
     } catch (error) {
       const err = toApiError(error);
       toast.remove();

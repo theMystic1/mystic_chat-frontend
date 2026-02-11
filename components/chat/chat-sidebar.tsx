@@ -14,6 +14,7 @@ import { Close, Edit, Settings } from "@mui/icons-material";
 import Modal from "../ui/modal";
 import WhatsAppSettingsModal from "./settings-modal";
 import { ProfileModalShell } from "./profile-shell";
+import { UserType } from "@/utils/types";
 
 type LastMessage =
   | string
@@ -37,9 +38,10 @@ const ChatSidebar = () => {
   const [query, setQuery] = React.useState("");
   const [openModal, setOpenModal] = React.useState(false);
 
-  const { user, loading } = useUser();
+  const { user: currentUser, loading } = useUser();
   const { chats, setActiveChatId, setChats } = useChatSync();
   const { isOnline } = useWs();
+  const useder = currentUser;
 
   React.useEffect(() => {
     setActiveChatId(activeChatId || null);
@@ -51,7 +53,7 @@ const ChatSidebar = () => {
 
     return chats.filter((c) => {
       const otherUser = c.members?.find(
-        (m: any) => String(m._id) !== String(user?._id),
+        (m: any) => String(m._id) !== String(useder?._id),
       );
       const name = otherUser?.displayName || otherUser?.userName || "New User";
 
@@ -62,7 +64,7 @@ const ChatSidebar = () => {
         name.toLowerCase().includes(q) || lastText.toLowerCase().includes(q)
       );
     });
-  }, [query, chats, user?._id]);
+  }, [query, chats, useder?._id]);
 
   if (loading) return <AppLoader />;
 
@@ -106,7 +108,7 @@ const ChatSidebar = () => {
           const active = String(c._id) === String(activeChatId);
 
           const otherUser = c.members?.find(
-            (m: any) => String(m._id) !== String(user?._id),
+            (m: any) => String(m._id) !== String(useder?._id),
           );
           const userName =
             otherUser?.displayName || otherUser?.userName || "New User";
@@ -217,17 +219,19 @@ const Avatar = ({ userName }: { userName: string }) => {
 const SettingsModal = ({
   openModal,
   setOpenModal,
+ 
 }: {
   openModal: boolean;
   setOpenModal: React.Dispatch<React.SetStateAction<boolean>>;
+
 }) => {
-  const { user } = useUser();
+  const { user: curUser } = useUser();
 
   return (
     <WhatsAppSettingsModal
       open={openModal}
       onClose={() => setOpenModal(false)}
-      user={user}
+      user={ curUser}
       onSave={async () => {}}
     />
   );
