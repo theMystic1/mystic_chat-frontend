@@ -69,6 +69,7 @@ export type Chat = {
 
   isMuted: boolean;
   isSpam: boolean;
+  groupName?: string; // for group chats, optional for users in DM chats
 
   lastMessageId?: ChatMessage | null; // populated object OR id OR null
   lastReadAt: string | null; // ISO string or null
@@ -156,4 +157,35 @@ export type LocalMessage = MessageRes & {
   clientId?: string;
   localStatus?: "sending" | "sent" | "failed"; // keep if you want
   deliveryStatus?: DeliveryStatus; // ✅ add this
+};
+
+export type ReceiptStatus = "sent" | "delivered" | "read";
+
+export type ChatListItem = {
+  _id: string;
+  members: any[];
+  unreadCount?: number;
+
+  lastMessageId?: any | null;
+
+  lastMessageMessageId?: string | null;
+  lastMessageText?: string;
+  lastMessageAt?: string;
+  lastMessageSenderId?: string | null;
+};
+
+export type ChatSyncState = {
+  chats: ChatListItem[];
+  setChats: React.Dispatch<React.SetStateAction<ChatListItem[]>>;
+
+  activeChatId: string | null;
+  setActiveChatId: (id: string | null) => void;
+
+  lastReceiptByChatId: Record<
+    string,
+    { messageId: string; status: ReceiptStatus }
+  >;
+
+  typingByChatId: any;
+  onlineUserIds: any;
 };

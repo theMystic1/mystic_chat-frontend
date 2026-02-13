@@ -7,6 +7,7 @@ import { Toaster } from "react-hot-toast";
 import { WsProvider } from "@/contexts/ws-context";
 import { ACCESS_COOKIE } from "@/utils/tokens";
 import UserProvider from "@/contexts/user-cintext";
+import QueryProviders from "@/contexts/query-client-provider";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -41,11 +42,13 @@ export default async function RootLayout({
   return (
     <html lang="en" data-theme={dataTheme}>
       <body>
-        <WsProvider token={token ?? ""}>
-          <UserProvider token={token ?? ""}>
-            <ClientLayout>{children}</ClientLayout>
-          </UserProvider>
-        </WsProvider>
+        <QueryProviders>
+          <WsProvider token={token ?? ""}>
+            <UserProvider token={token ?? ""}>
+              <ClientLayout>{children}</ClientLayout>
+            </UserProvider>
+          </WsProvider>
+        </QueryProviders>
 
         <Toaster
           toastOptions={{

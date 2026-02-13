@@ -15,6 +15,7 @@ import Modal from "../ui/modal";
 import WhatsAppSettingsModal from "./settings-modal";
 import { ProfileModalShell } from "./profile-shell";
 import { UserType } from "@/utils/types";
+import { useChats } from "@/hooks/useChats";
 
 type LastMessage =
   | string
@@ -38,37 +39,37 @@ const ChatSidebar = () => {
   const [query, setQuery] = React.useState("");
   const [openModal, setOpenModal] = React.useState(false);
 
-  const { user: currentUser, loading } = useUser();
-  const { chats, setActiveChatId, setChats } = useChatSync();
+  const { user, loading } = useUser();
+  const { setActiveChatId } = useChatSync();
+  const { filtered } = useChats();
   const { isOnline } = useWs();
-  const useder = currentUser;
 
   React.useEffect(() => {
     setActiveChatId(activeChatId || null);
   }, [activeChatId, setActiveChatId]);
 
-  const filtered = React.useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (!q) return chats;
+  // console.log(filtered);
 
-    return chats.filter((c) => {
-      const otherUser = c.members?.find(
-        (m: any) => String(m._id) !== String(useder?._id),
-      );
-      const name = otherUser?.displayName || otherUser?.userName || "New User";
+  // const filtered = React.useMemo(() => {
+  //   const q = query.trim().toLowerCase();
+  //   if (!q) return chats;
 
-      const lm = c.lastMessageId as unknown as LastMessage;
-      const lastText = typeof lm === "object" && lm ? (lm.text ?? "") : "";
+  //   return chats.filter((c) => {
+  //     const otherUser = c.members?.find(
+  //       (m: any) => String(m._id) !== String(user?._id),
+  //     );
+  //     const name = otherUser?.displayName || otherUser?.userName || "New User";
 
-      return (
-        name.toLowerCase().includes(q) || lastText.toLowerCase().includes(q)
-      );
-    });
-  }, [query, chats, useder?._id]);
+  //     const lm = c.lastMessageId as unknown as LastMessage;
+  //     const lastText = typeof lm === "object" && lm ? (lm.text ?? "") : "";
+
+  //     return (
+  //       name.toLowerCase().includes(q) || lastText.toLowerCase().includes(q)
+  //     );
+  //   });
+  // }, [query, chats, user?._id]);
 
   if (loading) return <AppLoader />;
-
-  // console.log(filtered);
 
   return (
     <div className="h-full min-h-0 w-full flex flex-col relative">
@@ -107,11 +108,18 @@ const ChatSidebar = () => {
         {filtered?.map((c: any) => {
           const active = String(c._id) === String(activeChatId);
 
-          const otherUser = c.members?.find(
-            (m: any) => String(m._id) !== String(useder?._id),
-          );
+          let otherUser;
+          c.type === "group"
+            ? (otherUser = c.members.filter(
+                (m: any) => String(m._id) !== String(user?._id),
+              ))
+            : (otherUser = c.members?.find(
+                (m: any) => String(m._id) !== String(user?._id),
+              ));
           const userName =
-            otherUser?.displayName || otherUser?.userName || "New User";
+            c.type === "group"
+              ? c.groupName
+              : otherUser?.displayName || otherUser?.userName || "New User";
 
           const lm = c.lastMessageId as unknown as LastMessage;
 
@@ -196,22 +204,23 @@ const ChatSidebar = () => {
 
 export default ChatSidebar;
 
-const Avatar = ({ userName }: { userName: string }) => {
+const colorMix = [
+  { bg: "bg-gray-100", text: "text-gray-800" },
+  { bg: "bg-gray-200", text: "text-gray-800" },
+  { bg: "bg-gray-300", text: "text-gray-800" },
+  { bg: "bg-gray-400", text: "text-gray-800" },
+  { bg: "bg-gray-500", text: "text-white" },
+  { bg: "bg-gray-600", text: "text-white" },
+  { bg: "bg-gray-700", text: "text-white" },
+];
+export const Avatar = ({ userName }: { userName: string }) => {
   //
-  const colorMix = [
-    { bg: "bg-gray-100", text: "text-gray-800" },
-    { bg: "bg-gray-200", text: "text-gray-800" },
-    { bg: "bg-gray-300", text: "text-gray-800" },
-    { bg: "bg-gray-400", text: "text-gray-800" },
-    { bg: "bg-gray-500", text: "text-white" },
-    { bg: "bg-gray-600", text: "text-white" },
-    { bg: "bg-gray-700", text: "text-white" },
-  ];
+
   return (
     <div
-      className={`${colorMix[getInitials(userName).charCodeAt(1) % colorMix.length].bg} ${colorMix[getInitials(userName).charCodeAt(1) % colorMix.length].text} h-11 w-11 rounded-2xl flex items-center justify-center`}
+      className={`${colorMix[getInitials(userName).charCodeAt(1) % colorMix.length || 3]?.bg} ${colorMix[getInitials(userName)?.charCodeAt(1) % colorMix.length]?.text} min-h-10 min-w-10 rounded-2xl flex items-center justify-center`}
     >
-      <span className="font-semibold">{getInitials(userName)}</span>
+      <span className="font-semibold text-sm">{getInitials(userName)}</span>
     </div>
   );
 };
@@ -219,11 +228,9 @@ const Avatar = ({ userName }: { userName: string }) => {
 const SettingsModal = ({
   openModal,
   setOpenModal,
- 
 }: {
   openModal: boolean;
   setOpenModal: React.Dispatch<React.SetStateAction<boolean>>;
-
 }) => {
   const { user: curUser } = useUser();
 
@@ -231,8 +238,8 @@ const SettingsModal = ({
     <WhatsAppSettingsModal
       open={openModal}
       onClose={() => setOpenModal(false)}
-      user={ curUser}
-      onSave={async () => {}}
+      // user={curUser}
+      // onSave={async () => {}}
     />
   );
 };

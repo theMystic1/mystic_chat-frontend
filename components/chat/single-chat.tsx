@@ -1,69 +1,121 @@
+// components/ChatPane.tsx
 "use client";
 
 import * as React from "react";
 import Link from "next/link";
 import { motion, AnimatePresence } from "framer-motion";
+import { ChevronLeft } from "@mui/icons-material";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+
 import useKeyboardOffset from "@/hooks/useKeyboardOffset";
-import {
-  ChatWithMessagesResponse,
-  LocalMessage,
-  MessageRes,
-} from "@/utils/types";
+import { useChatById } from "@/hooks/useChatById";
 import { useUser } from "@/contexts/user-cintext";
-import ChatPaneSkeleton from "@/app/chat/[chatId]/loading";
 import { useWs } from "@/contexts/ws-context";
+import { useChatSync } from "@/contexts/chat-sync-context";
+
 import {
   dayKey,
   formatChatTime,
   formatDayLabel,
   getInitials,
 } from "@/utils/helpers";
+import type { LocalMessage, MessageRes, UserType } from "@/utils/types";
+
 import { apiClient } from "@/lib/api/axios-client";
+import ChatPaneSkeleton from "@/app/chat/[chatId]/loading";
 import Checkmarks from "./checkMark";
-import { useChatSync } from "@/contexts/chat-sync-context";
-import { OtherUserModal } from "./otheuser-modal";
+import WhatsAppSettingsModal from "./settings-modal";
+import NewChatModal from "./new-chat";
 
 const bubbleBase =
   "max-w-[78%] rounded-2xl px-4 py-2 text-sm leading-relaxed border border-white/5 shadow-sm";
 
-const ChatPane = ({
-  chatId,
-  chat,
-}: {
-  chatId: string;
-  chat: ChatWithMessagesResponse;
-}) => {
+const clamp = (v: string, n: number) => v.slice(0, n);
+
+const ChatPane = ({ chatId }: { chatId: string; chat?: any }) => {
   const kbOffset = useKeyboardOffset();
   const [draft, setDraft] = React.useState("");
-  const [messages, setMessages] = React.useState<LocalMessage[]>(() =>
-    (chat.messages ?? []).map((m) => ({
-      ...m,
-      localStatus: "sent",
-      deliveryStatus: "sent",
-    })),
-  );
-  const [openSettingsModal, setOpenSettingsModal] = React.useState(false);
 
+  const [openSettingsModal, setOpenSettingsModal] = React.useState(false);
+  const [openAddMembers, setOpenAddMembers] = React.useState(false);
+
+  const { user, loading } = useUser();
   const { typingByChatId } = useChatSync();
   const { isOnline, ws, lastEvent } = useWs();
-  const { user, loading } = useUser();
 
-  const otherUser = chat?.chat?.members.find(
-    (m) => String(m._id) !== String(user?._id),
-  );
+  const { chatData, messages, members, isLoading, isLoadingMembers } =
+    useChatById(chatId);
+
+  const singleChat = chatData?.chat;
+  const isGroup = singleChat?.type === "group";
+
+  const otherUsers: UserType[] = React.useMemo(() => {
+    return (members ?? []).filter(
+      (m: any) => String(m._id) !== String(user?._id),
+    );
+  }, [members, user?._id]);
+
+  const otherUser = otherUsers?.[0] ?? null;
+
+  const headerTitle = isGroup
+    ? singleChat?.groupName || "Group"
+    : otherUser?.displayName || otherUser?.userName || "New User";
 
   const typingUsers = typingByChatId?.[chatId] ?? [];
-  const isOtherTyping = typingUsers.some(
-    (id: any) => String(id) === String(otherUser?._id),
-  );
-  const otherId = otherUser?._id ? String(otherUser._id) : null;
-  const otherUserOnline = isOnline(otherId);
+  const typingOtherIds = typingUsers
+    .map(String)
+    .filter((id: any) => id !== String(user?._id));
 
-  const userName = otherUser?.displayName || otherUser?.userName || "New User";
+  const isOtherTypingDM =
+    !isGroup && otherUser
+      ? typingOtherIds.includes(String(otherUser._id))
+      : false;
 
+  const typingCountInGroup = isGroup
+    ? otherUsers.filter((u) => typingOtherIds.includes(String(u._id))).length
+    : 0;
+
+  const onlineCountInGroup = isGroup
+    ? otherUsers.filter((u) => isOnline(String(u._id))).length
+    : 0;
+
+  const otherUserOnlineDM =
+    !isGroup && otherUser ? isOnline(String(otherUser._id)) : false;
+
+  const headerSubtitle = React.useMemo(() => {
+    if (isGroup) {
+      if (typingCountInGroup > 0) {
+        return typingCountInGroup === 1
+          ? "typing…"
+          : `${typingCountInGroup} typing…`;
+      }
+      const totalMembers = singleChat?.members?.length ?? members?.length ?? 0;
+      const onlineText =
+        onlineCountInGroup > 0 ? ` • ${onlineCountInGroup} online` : "";
+      return `${totalMembers} members${onlineText}`;
+    }
+
+    if (isOtherTypingDM) return "typing…";
+    if (otherUserOnlineDM) return "Online";
+    if (otherUser?.lastSeenAt)
+      return formatChatTime({ value: otherUser.lastSeenAt });
+    return "offline";
+  }, [
+    isGroup,
+    typingCountInGroup,
+    onlineCountInGroup,
+    singleChat?.members?.length,
+    members?.length,
+    isOtherTypingDM,
+    otherUserOnlineDM,
+    otherUser?.lastSeenAt,
+  ]);
+
+  // ----------------------------
+  // Scroll-to-bottom behaviour
+  // ----------------------------
   const scrollerRef = React.useRef<HTMLDivElement | null>(null);
   const bottomRef = React.useRef<HTMLDivElement | null>(null);
-
   const shouldStickToBottomRef = React.useRef(true);
 
   const computeNearBottom = React.useCallback(() => {
@@ -91,12 +143,12 @@ const ChatPane = ({
 
     el.addEventListener("scroll", onScroll, { passive: true });
     shouldStickToBottomRef.current = computeNearBottom();
+
     return () => el.removeEventListener("scroll", onScroll);
   }, [computeNearBottom]);
 
   React.useEffect(() => {
     shouldStickToBottomRef.current = true;
-
     const raf = requestAnimationFrame(() => scrollToBottom("auto"));
     return () => cancelAnimationFrame(raf);
   }, [chatId, scrollToBottom]);
@@ -107,18 +159,29 @@ const ChatPane = ({
     prevLenRef.current = messages.length;
 
     if (messages.length <= prevLen) return;
-
-    if (shouldStickToBottomRef.current) {
-      scrollToBottom("smooth");
-    }
+    if (shouldStickToBottomRef.current) scrollToBottom("smooth");
   }, [messages.length, scrollToBottom]);
 
-  const pendingDeliveredRef = React.useRef<Set<string>>(new Set());
-  const pendingReadRef = React.useRef<Set<string>>(new Set());
+  // ----------------------------
+  // React Query cache helpers
+  // ----------------------------
+  const qc = useQueryClient();
+  const chatKey = React.useMemo(() => ["chat", chatId], [chatId]);
 
-  const typingRef = React.useRef(false);
-  const stopTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const patchMessages = React.useCallback(
+    (updater: (prev: LocalMessage[]) => LocalMessage[]) => {
+      qc.setQueryData(chatKey, (prev: any) => {
+        if (!prev) return prev;
+        const msgs: LocalMessage[] = prev.messages ?? [];
+        return { ...prev, messages: updater(msgs) };
+      });
+    },
+    [qc, chatKey],
+  );
 
+  // ----------------------------
+  // WS join / acks
+  // ----------------------------
   React.useEffect(() => {
     if (!ws) return;
     ws.joinChat(chatId);
@@ -133,12 +196,92 @@ const ChatPane = ({
     }
   }, [ws, lastEvent, chatId]);
 
+  // out-of-order buffers
+  const pendingDeliveredRef = React.useRef<Set<string>>(new Set());
+  const pendingReadRef = React.useRef<Set<string>>(new Set());
+
+  // typing timers
+  const typingRef = React.useRef(false);
+  const stopTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const bumpTyping = React.useCallback(() => {
+    if (!ws) return;
+
+    if (!typingRef.current) {
+      typingRef.current = true;
+      ws.typingStart(chatId);
+    }
+
+    if (stopTimerRef.current) clearTimeout(stopTimerRef.current);
+
+    stopTimerRef.current = setTimeout(() => {
+      typingRef.current = false;
+      ws.typingStop(chatId);
+    }, 900);
+  }, [ws, chatId]);
+
+  // ----------------------------
+  // SEND mutation (optimistic)
+  // ----------------------------
+  const sendMutation = useMutation({
+    mutationFn: async (text: string) => {
+      return apiClient.post(`/chat/messages/${chatId}/send`, {
+        message: text,
+        type: "text",
+      });
+    },
+    onMutate: async (text: string) => {
+      const trimmed = text.trim();
+      if (!trimmed) return;
+
+      await qc.cancelQueries({ queryKey: chatKey });
+
+      const clientId = `c_${Date.now()}_${Math.random().toString(16).slice(2)}`;
+
+      const optimistic: LocalMessage = {
+        _id: clientId as any,
+        clientId,
+        chatId: chatId as any,
+        senderId: user?._id as any,
+        type: "text" as any,
+        text: trimmed,
+        createdAt: new Date().toISOString(),
+        attachments: [],
+        localStatus: "sending",
+        deliveryStatus: "sending",
+      } as any;
+
+      patchMessages((prev) => [...prev, optimistic]);
+
+      return { clientId };
+    },
+    onError: (_err, _text, ctx) => {
+      if (!ctx?.clientId) return;
+
+      patchMessages((prev) =>
+        prev.map((m) =>
+          m.clientId === ctx.clientId
+            ? { ...m, localStatus: "failed", deliveryStatus: "sent" }
+            : m,
+        ),
+      );
+    },
+    onSuccess: () => {
+      // Do nothing: server WS `message_sent` will reconcile optimistic -> real id
+    },
+  });
+
+  // ----------------------------
+  // WS events -> cache updates
+  // ----------------------------
   React.useEffect(() => {
     if (!ws || !lastEvent) return;
 
+    const sameChat = (a: any, b: any) => String(a) === String(b);
+
     if (lastEvent.type === "message_sent") {
       const incoming = lastEvent.data;
-      if (incoming.chatId !== chatId) return;
+      if (!sameChat(incoming.chatId, chatId)) return;
 
       const fromMe = String(incoming.senderId) === String(user?._id);
 
@@ -147,7 +290,7 @@ const ChatPane = ({
         ws.ackRead(incoming.chatId, incoming.id);
       }
 
-      setMessages((prev) => {
+      patchMessages((prev) => {
         const exists = prev.some((m) => String(m._id) === String(incoming.id));
         if (exists) return prev;
 
@@ -172,6 +315,7 @@ const ChatPane = ({
               : "sent",
         } as any;
 
+        // replace optimistic (same sender + same text + within 30s)
         const idx = prev.findIndex((m) => {
           if (m.localStatus !== "sending") return false;
           if (String(m.senderId) !== String(incoming.senderId)) return false;
@@ -194,49 +338,59 @@ const ChatPane = ({
       return;
     }
 
+    // ✅ SINGLE DELIVERED
     if (lastEvent.type === "message_delivered") {
       const { chatId: cid, messageId } = lastEvent.data;
       if (cid !== chatId) return;
 
       let found = false;
-      setMessages((prev) =>
+
+      patchMessages((prev) =>
         prev.map((m) => {
           if (String(m._id) !== String(messageId)) return m;
           const isMine = String(m.senderId) === String(user?._id);
           if (!isMine) return m;
+
           found = true;
           if (m.deliveryStatus === "read") return m;
           return { ...m, deliveryStatus: "delivered" };
         }),
       );
+
       if (!found) pendingDeliveredRef.current.add(String(messageId));
       return;
     }
 
+    // ✅ SINGLE READ
     if (lastEvent.type === "message_read") {
       const { chatId: cid, messageId } = lastEvent.data;
       if (cid !== chatId) return;
 
       let found = false;
-      setMessages((prev) =>
+
+      patchMessages((prev) =>
         prev.map((m) => {
           if (String(m._id) !== String(messageId)) return m;
           const isMine = String(m.senderId) === String(user?._id);
           if (!isMine) return m;
+
           found = true;
           return { ...m, deliveryStatus: "read" };
         }),
       );
+
       if (!found) pendingReadRef.current.add(String(messageId));
       return;
     }
 
+    // ✅ BULK DELIVERED
     if (lastEvent.type === "messages_delivered") {
       const { chatId: cid, messageIds } = lastEvent.data;
       if (cid !== chatId) return;
 
       const idSet = new Set(messageIds.map(String));
-      setMessages((prev) =>
+
+      patchMessages((prev) =>
         prev.map((m) => {
           const isMine = String(m.senderId) === String(user?._id);
           if (!isMine) return m;
@@ -250,12 +404,14 @@ const ChatPane = ({
       return;
     }
 
+    // ✅ BULK READ
     if (lastEvent.type === "messages_read") {
       const { chatId: cid, messageIds } = lastEvent.data;
       if (cid !== chatId) return;
 
       const idSet = new Set(messageIds.map(String));
-      setMessages((prev) =>
+
+      patchMessages((prev) =>
         prev.map((m) => {
           const isMine = String(m.senderId) === String(user?._id);
           if (!isMine) return m;
@@ -267,39 +423,19 @@ const ChatPane = ({
       for (const id of idSet) pendingReadRef.current.add(String(id));
       return;
     }
-  }, [ws, lastEvent, chatId, user?._id]);
+  }, [ws, lastEvent, chatId, user?._id, patchMessages]);
 
-  const sendToServer = async (chatId: string, text: string) => {
-    return apiClient.post(`/chat/messages/${chatId}/send`, {
-      message: text,
-      type: "text",
-    });
-  };
-
-  const bumpTyping = React.useCallback(() => {
-    if (!ws) return;
-
-    if (!typingRef.current) {
-      typingRef.current = true;
-      ws.typingStart(chatId);
-    }
-
-    if (stopTimerRef.current) clearTimeout(stopTimerRef.current);
-
-    stopTimerRef.current = setTimeout(() => {
-      typingRef.current = false;
-      ws.typingStop(chatId);
-    }, 900);
-  }, [ws, chatId]);
-
+  // ----------------------------
+  // Send / Retry handlers
+  // ----------------------------
   const onSend = async () => {
     const text = draft.trim();
     if (!text) return;
 
     setDraft("");
-
     shouldStickToBottomRef.current = true;
 
+    // stop typing immediately on send
     if (typingRef.current) {
       typingRef.current = false;
       ws?.typingStop(chatId);
@@ -309,43 +445,17 @@ const ChatPane = ({
       stopTimerRef.current = null;
     }
 
-    const clientId = `c_${Date.now()}_${Math.random().toString(16).slice(2)}`;
-    const optimistic: any = {
-      _id: clientId,
-      clientId,
-      chatId,
-      senderId: user?._id as string,
-      type: "text",
-      text,
-      createdAt: new Date().toISOString(),
-      localStatus: "sending",
-      deliveryStatus: "sending",
-    };
-
-    setMessages((prev) => [...prev, optimistic]);
+    sendMutation.mutate(text);
     requestAnimationFrame(() => scrollToBottom("smooth"));
-
-    try {
-      await sendToServer(chatId, text);
-    } catch (e) {
-      console.error(e);
-      setMessages((prev) =>
-        prev.map((m) =>
-          m.clientId === clientId
-            ? { ...m, localStatus: "failed", deliveryStatus: "sent" }
-            : m,
-        ),
-      );
-    }
   };
 
-  const retryMessage = async (clientId: string) => {
+  const retryMessage = (clientId: string) => {
     const msg = messages.find((m) => m.clientId === clientId);
-    if (!msg) return;
+    if (!msg?.text) return;
 
     shouldStickToBottomRef.current = true;
 
-    setMessages((prev) =>
+    patchMessages((prev) =>
       prev.map((m) =>
         m.clientId === clientId
           ? { ...m, localStatus: "sending", deliveryStatus: "sending" }
@@ -353,39 +463,33 @@ const ChatPane = ({
       ),
     );
 
+    sendMutation.mutate(msg.text);
     requestAnimationFrame(() => scrollToBottom("smooth"));
-
-    try {
-      await sendToServer(chatId, msg.text ?? "");
-    } catch (e) {
-      console.error(e);
-      setMessages((prev) =>
-        prev.map((m) =>
-          m.clientId === clientId ? { ...m, localStatus: "failed" } : m,
-        ),
-      );
-    }
   };
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === "Enter") onSend();
   };
 
-  if (loading) return <ChatPaneSkeleton />;
+  // helpers
+  const getSender = (id: string) =>
+    (members ?? []).find((m: any) => String(m._id) === String(id));
+
+  if (loading || isLoadingMembers || isLoading) return <ChatPaneSkeleton />;
 
   return (
     <div className="h-full min-h-0 flex flex-col">
+      {/* header */}
       <div className="flex items-center justify-between gap-3 p-4 border-b border-white/5 bg-surface shrink-0">
         <div className="flex items-center gap-3 min-w-0 w-full">
-          <Link
-            href="/chat"
-            className="lg:hidden btn btn-ghost px-3 py-2 text-xs"
-          >
-            Back
-          </Link>
+          <div className="lg:hidden">
+            <Link href="/chat" className="btn btn-ghost px-3 py-2 text-xs">
+              <ChevronLeft />
+            </Link>
+          </div>
 
           <div className="min-h-10 min-w-10 rounded-2xl bg-elevated border border-white/5 flex items-center justify-center">
-            <span className="font-semibold">{getInitials(userName)}</span>
+            <span className="font-semibold">{getInitials(headerTitle)}</span>
           </div>
 
           <button
@@ -393,20 +497,23 @@ const ChatPane = ({
             onClick={() => setOpenSettingsModal(true)}
           >
             <p className="truncate text-start text-sm font-semibold">
-              {" "}
-              {userName}
+              {headerTitle}
             </p>
-            <p className="text-xs text-muted text-start">
-              {isOtherTyping
-                ? "typing…"
-                : otherUserOnline
-                  ? "Online"
-                  : otherUser?.lastSeenAt
-                    ? formatChatTime({ value: otherUser?.lastSeenAt })
-                    : "offline"}
-            </p>
+            <p className="text-xs text-muted text-start">{headerSubtitle}</p>
           </button>
         </div>
+
+        {isGroup && (
+          <div className="lg:max-w-30 max-w-12 w-full">
+            <button
+              className="btn btn-ghost px-3 py-2 text-xs"
+              onClick={() => setOpenAddMembers(true)}
+            >
+              <span className="hidden lg:flex">Add members</span>
+              <span className="lg:hidden">+</span>
+            </button>
+          </div>
+        )}
       </div>
 
       {/* messages */}
@@ -456,40 +563,59 @@ const ChatPane = ({
                               : "bg-surface text-ink-100",
                           ].join(" ")}
                         >
+                          {isGroup && !fromMe ? (
+                            <span className="text-xs text-aurora-400">
+                              {getSender(m.senderId)?.userName ||
+                                getSender(m.senderId)?.displayName ||
+                                (getSender(m.senderId)?.email
+                                  ? String(getSender(m.senderId)?.email).split(
+                                      "@",
+                                    )[0]
+                                  : "") ||
+                                "Unknown User"}
+                            </span>
+                          ) : null}
+
                           <p>{m.text}</p>
 
                           <div className="mt-1 flex items-center justify-end gap-2">
-                            {fromMe && m.localStatus === "failed" && (
+                            {/* failed */}
+                            {fromMe && (m as any).localStatus === "failed" && (
                               <button
                                 type="button"
-                                onClick={() => retryMessage(m.clientId!)}
+                                onClick={() =>
+                                  retryMessage((m as any).clientId!)
+                                }
                                 className="text-[10px] underline underline-offset-2 text-red-500 cursor-pointer hover:text-red-600"
                               >
                                 Failed • Retry
                               </button>
                             )}
 
-                            {fromMe && m.localStatus !== "failed" && (
-                              <span className="text-[10px]">
-                                <Checkmarks
-                                  status={
-                                    fromMe &&
-                                    m?.readBy?.includes(otherUser?._id!)
-                                      ? "read"
-                                      : fromMe &&
-                                          !m?.readBy?.includes(
-                                            otherUser?._id!,
-                                          ) &&
-                                          m?.deliveredTo?.includes(
-                                            otherUser?._id!,
-                                          )
-                                        ? "delivered"
-                                        : (m.deliveryStatus as any)
-                                  }
-                                />
-                              </span>
-                            )}
+                            {/* ticks (DM only) */}
+                            {fromMe &&
+                              !isGroup &&
+                              (m as any).localStatus !== "failed" && (
+                                <span className="text-[10px]">
+                                  <Checkmarks
+                                    status={
+                                      otherUser &&
+                                      (m as any)?.readBy?.includes(
+                                        otherUser._id!,
+                                      )
+                                        ? "read"
+                                        : otherUser &&
+                                            (m as any)?.deliveredTo?.includes(
+                                              otherUser._id!,
+                                            )
+                                          ? "delivered"
+                                          : ((m as any).deliveryStatus as any)
+                                    }
+                                  />
+                                </span>
+                              )}
 
+                            {/* time */}
                             <span
                               className={
                                 fromMe
@@ -516,6 +642,7 @@ const ChatPane = ({
         </div>
       </div>
 
+      {/* composer */}
       <div
         className="sticky bottom-0 z-20 p-3 sm:p-4 border-t border-white/5 bg-surface shrink-0"
         style={{ transform: `translateY(-${kbOffset}px)` }}
@@ -544,18 +671,30 @@ const ChatPane = ({
               type="button"
               onClick={onSend}
               className="btn btn-primary px-5 py-2.5"
+              disabled={sendMutation.isPending}
             >
-              {">"}
+              {sendMutation.isPending ? "…" : ">"}
             </button>
           </div>
         </div>
       </div>
 
-      <OtherUserModal
+      {/* settings modal (group view / user view) */}
+      <WhatsAppSettingsModal
         open={openSettingsModal}
         onClose={() => setOpenSettingsModal(false)}
-        title={otherUser?.displayName || otherUser?.userName || "User User"}
-        otherUser={otherUser}
+        mode={isGroup ? "group_view" : "user_view"}
+        curChat={singleChat}
+        otherUsers={isGroup ? members : []}
+        targetUser={isGroup ? null : otherUser}
+      />
+
+      {/* add members modal */}
+      <NewChatModal
+        type="add-to-group"
+        open={openAddMembers}
+        onClose={() => setOpenAddMembers(false)}
+        defaulMembers={members}
       />
     </div>
   );

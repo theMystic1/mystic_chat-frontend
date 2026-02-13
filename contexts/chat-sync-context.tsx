@@ -2,49 +2,22 @@
 
 import * as React from "react";
 import { useWs } from "@/contexts/ws-context";
-
-export type ReceiptStatus = "sent" | "delivered" | "read";
-
-export type ChatListItem = {
-  _id: string;
-  members: any[];
-  unreadCount?: number;
-
-  // server-populated (keep intact, don't overwrite types)
-  lastMessageId?: any | null;
-
-  // ✅ client-only preview fields (SOURCE OF TRUTH for sidebar)
-  lastMessageMessageId?: string | null;
-  lastMessageText?: string;
-  lastMessageAt?: string;
-  lastMessageSenderId?: string | null;
-};
-
-type ChatSyncState = {
-  chats: ChatListItem[];
-  setChats: React.Dispatch<React.SetStateAction<ChatListItem[]>>;
-
-  activeChatId: string | null;
-  setActiveChatId: (id: string | null) => void;
-
-  lastReceiptByChatId: Record<
-    string,
-    { messageId: string; status: ReceiptStatus }
-  >;
-  typingByChatId: any; // ✅ add
-  onlineUserIds: any;
-};
+import { useQueryClient } from "@tanstack/react-query";
+import { apiClient } from "@/lib/api/axios-client";
+import { ChatListItem, ChatSyncState, ReceiptStatus } from "@/utils/types";
 
 const ChatSyncContext = React.createContext<ChatSyncState | null>(null);
 
-function normalizeInitialChats(chats: ChatListItem[]): ChatListItem[] {
+const normalizeInitialChats = (chats: ChatListItem[]): ChatListItem[] => {
   return chats.map((c) => {
     const lm = c.lastMessageId;
     const lastMessageMessageId = lm?._id
       ? String(lm._id)
       : (c.lastMessageMessageId ?? null);
+
     const lastMessageText =
       typeof lm?.text === "string" ? lm.text : (c.lastMessageText ?? "");
+
     const lastMessageAt =
       lm?.updatedAt || lm?.createdAt
         ? String(lm.updatedAt || lm.createdAt)
@@ -63,16 +36,34 @@ function normalizeInitialChats(chats: ChatListItem[]): ChatListItem[] {
       lastMessageSenderId,
     };
   });
-}
+};
 
-export function ChatSyncProvider({
+// ---- helpers to update react-query cache ----
+const mapIncomingToMessage = (m: any) => {
+  return {
+    _id: String(m.id ?? m._id),
+    chatId: String(m.chatId),
+    senderId: String(m.senderId),
+    type: m.type ?? "text",
+    text: m.text ?? "",
+    createdAt: m.createdAt ?? new Date().toISOString(),
+    updatedAt: m.updatedAt ?? m.createdAt ?? new Date().toISOString(),
+    attachments: m.attachments ?? [],
+    // client-side fields (safe)
+    localStatus: "sent",
+    deliveryStatus: "sent",
+  };
+};
+
+export const ChatSyncProvider = ({
   initialChats,
   children,
 }: {
   initialChats: ChatListItem[];
   children: React.ReactNode;
-}) {
+}) => {
   const { ws, lastEvent } = useWs();
+  const qc = useQueryClient();
 
   const [chats, setChats] = React.useState<ChatListItem[]>(() =>
     normalizeInitialChats(initialChats),
@@ -117,29 +108,26 @@ export function ChatSyncProvider({
     if (!ws || !lastEvent) return;
     if (lastEvent.type === "auth_ok") {
       meIdRef.current = lastEvent.data.userId;
-
-      // once authed, ensure we are subscribed to all chats
       for (const c of chats) ws.joinChat(String(c._id));
     }
   }, [ws, lastEvent, chats]);
+
   React.useEffect(() => {
     if (!ws || !lastEvent) return;
 
     // ✅ chat created
     if (lastEvent.type === "chat_created") {
       const c = lastEvent.data;
+      const chatId = String(c.id ?? c._id);
 
       setChats((prev) => {
-        const exists = prev.some(
-          (x) => String(x._id) === String(c.id ?? c._id),
-        );
+        const exists = prev.some((x) => String(x._id) === chatId);
         if (exists) return prev;
 
         const newChat: ChatListItem = {
-          _id: String(c.id ?? c._id),
+          _id: chatId,
           members: c.members,
           unreadCount: 0,
-
           lastMessageId: null,
           lastMessageMessageId: null,
           lastMessageText: "",
@@ -150,38 +138,59 @@ export function ChatSyncProvider({
         return [newChat, ...prev];
       });
 
+      // ✅ seed minimal cache so opening the chat doesn't "miss"
+      qc.setQueryData(["chat", chatId], (old: any) => {
+        if (old) return old;
+        return {
+          chat: {
+            _id: chatId,
+            ...c,
+          },
+          messages: [],
+        };
+      });
+
+      // members cache (optional seed)
+      qc.setQueryData(["chat-members", chatId], (old: any) => old ?? c.members);
+
+      // subscribe
+      ws.joinChat(chatId);
+
       return;
     }
 
     // ✅ message sent
     if (lastEvent.type === "message_sent") {
       const m = lastEvent.data;
+      const chatId = String(m.chatId);
+      const msg = mapIncomingToMessage(m);
 
       const meId = meIdRef.current ?? ws.getState().userId;
       const fromMe = meId ? String(m.senderId) === String(meId) : false;
 
-      // delivered when online
+      // delivered/read acks
       if (meId && !fromMe) {
-        ws.ackDelivered(m.chatId, m.id);
+        ws.ackDelivered(chatId, String(m.id));
 
         const isActive =
-          activeChatId && String(activeChatId) === String(m.chatId);
+          activeChatId && String(activeChatId) === String(chatId);
         const visible =
           typeof document === "undefined" ||
           document.visibilityState === "visible";
 
-        if (isActive && visible) ws.ackRead(m.chatId, m.id);
+        if (isActive && visible) ws.ackRead(chatId, String(m.id));
       }
 
+      // ✅ update sidebar list
       setChats((prev) => {
-        const idx = prev.findIndex((c) => String(c._id) === String(m.chatId));
+        const idx = prev.findIndex((c) => String(c._id) === chatId);
         if (idx < 0) return prev;
 
         const copy = [...prev];
         const cur = copy[idx];
 
         const isActive =
-          activeChatId && String(activeChatId) === String(m.chatId);
+          activeChatId && String(activeChatId) === String(chatId);
 
         const nextUnread =
           fromMe || isActive
@@ -202,11 +211,45 @@ export function ChatSyncProvider({
         return copy;
       });
 
+      // ✅ update ticks for chat list (only my outgoing)
       if (fromMe) {
         setLastReceiptByChatId((prev) => ({
           ...prev,
-          [m.chatId]: { messageId: String(m.id), status: "sent" },
+          [chatId]: { messageId: String(m.id), status: "sent" },
         }));
+      }
+
+      // ✅ 1) write into React Query cache for the chat thread
+      qc.setQueryData(["chat", chatId], (old: any) => {
+        if (!old) return old;
+
+        const oldMsgs = Array.isArray(old.messages) ? old.messages : [];
+        const exists = oldMsgs.some(
+          (x: any) => String(x._id) === String(msg._id),
+        );
+        if (exists) return old;
+
+        return {
+          ...old,
+          messages: [...oldMsgs, msg],
+          chat: {
+            ...(old.chat ?? {}),
+            lastMessageAt: msg.createdAt,
+          },
+        };
+      });
+
+      // ✅ 2) If it's not cached yet, prefetch so entering the chat works immediately
+      const hasCache = qc.getQueryData(["chat", chatId]);
+      if (!hasCache) {
+        qc.prefetchQuery({
+          queryKey: ["chat", chatId],
+          queryFn: async () => {
+            const { data } = await apiClient.get(`/chat/messages/${chatId}`);
+            return data?.data ?? data;
+          },
+          staleTime: 60_000,
+        });
       }
 
       return;
@@ -227,6 +270,19 @@ export function ChatSyncProvider({
         };
       });
 
+      // optional: reflect in message cache too (if you want)
+      qc.setQueryData(["chat", String(chatId)], (old: any) => {
+        if (!old?.messages) return old;
+        return {
+          ...old,
+          messages: old.messages.map((x: any) =>
+            String(x._id) === String(messageId)
+              ? { ...x, deliveryStatus: "delivered" }
+              : x,
+          ),
+        };
+      });
+
       return;
     }
 
@@ -241,6 +297,18 @@ export function ChatSyncProvider({
         return {
           ...prev,
           [chatId]: { messageId: String(messageId), status: "read" },
+        };
+      });
+
+      qc.setQueryData(["chat", String(chatId)], (old: any) => {
+        if (!old?.messages) return old;
+        return {
+          ...old,
+          messages: old.messages.map((x: any) =>
+            String(x._id) === String(messageId)
+              ? { ...x, deliveryStatus: "read" }
+              : x,
+          ),
         };
       });
 
@@ -265,6 +333,19 @@ export function ChatSyncProvider({
         };
       });
 
+      qc.setQueryData(["chat", String(chatId)], (old: any) => {
+        if (!old?.messages) return old;
+        const idSet = new Set(ids.map(String));
+        return {
+          ...old,
+          messages: old.messages.map((x: any) =>
+            idSet.has(String(x._id)) && x.deliveryStatus !== "read"
+              ? { ...x, deliveryStatus: "delivered" }
+              : x,
+          ),
+        };
+      });
+
       return;
     }
 
@@ -285,9 +366,20 @@ export function ChatSyncProvider({
         };
       });
 
+      qc.setQueryData(["chat", String(chatId)], (old: any) => {
+        if (!old?.messages) return old;
+        const idSet = new Set(ids.map(String));
+        return {
+          ...old,
+          messages: old.messages.map((x: any) =>
+            idSet.has(String(x._id)) ? { ...x, deliveryStatus: "read" } : x,
+          ),
+        };
+      });
+
       return;
     }
-  }, [ws, lastEvent, activeChatId, setChats]);
+  }, [ws, lastEvent, activeChatId, qc]);
 
   React.useEffect(() => {
     if (!ws || !activeChatId) return;
@@ -300,6 +392,9 @@ export function ChatSyncProvider({
         String(c._id) === String(activeChatId) ? { ...c, unreadCount: 0 } : c,
       ),
     );
+
+    // Optional: on open, force a revalidate once (if you want)
+    // qc.invalidateQueries({ queryKey: ["chat", String(activeChatId)] });
   }, [ws, activeChatId]);
 
   React.useEffect(() => {
@@ -359,7 +454,7 @@ export function ChatSyncProvider({
     activeChatId,
     setActiveChatId,
     lastReceiptByChatId,
-    typingByChatId, // ✅ add
+    typingByChatId,
     onlineUserIds,
   };
 
@@ -368,10 +463,10 @@ export function ChatSyncProvider({
       {children}
     </ChatSyncContext.Provider>
   );
-}
+};
 
-export function useChatSync() {
+export const useChatSync = () => {
   const ctx = React.useContext(ChatSyncContext);
   if (!ctx) throw new Error("useChatSync must be used within ChatSyncProvider");
   return ctx;
-}
+};
