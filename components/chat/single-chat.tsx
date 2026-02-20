@@ -4,8 +4,9 @@
 import * as React from "react";
 import Link from "next/link";
 import { motion, AnimatePresence } from "framer-motion";
-import { ChevronLeft } from "@mui/icons-material";
+import { ChevronLeft, Close, Telegram } from "@mui/icons-material";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
+import EmojiPicker, { EmojiClickData } from "emoji-picker-react";
 
 import useKeyboardOffset from "@/hooks/useKeyboardOffset";
 import { useChatById } from "@/hooks/useChatById";
@@ -26,6 +27,12 @@ import ChatPaneSkeleton from "@/app/chat/[chatId]/loading";
 import Checkmarks from "./checkMark";
 import WhatsAppSettingsModal from "./settings-modal";
 import NewChatModal from "./new-chat";
+import { useTyping } from "@/hooks/useBumbTyping";
+import ComposerMediaActions from "./media-actions";
+import { uploadToCloudinary } from "@/lib/cloudinary/upload";
+import Image from "next/image";
+import { Avatar } from "./chat-sidebar";
+import toast from "react-hot-toast";
 
 const bubbleBase =
   "max-w-[78%] rounded-2xl px-4 py-2 text-sm leading-relaxed border border-white/5 shadow-sm";
@@ -38,6 +45,21 @@ const ChatPane = ({ chatId }: { chatId: string; chat?: any }) => {
 
   const [openSettingsModal, setOpenSettingsModal] = React.useState(false);
   const [openAddMembers, setOpenAddMembers] = React.useState(false);
+  const [openEmoji, setOpenEmoji] = React.useState(false);
+  const [imgFile, setImgFile] = React.useState<File | null>(null);
+  const [imgPreview, setImgPreview] = React.useState<string | null>(null);
+  const [sendingImage, setSendingImage] = React.useState(false);
+  // out-of-order buffers
+  const pendingDeliveredRef = React.useRef<Set<string>>(new Set());
+  const pendingReadRef = React.useRef<Set<string>>(new Set());
+
+  const [voiceDraft, setVoiceDraft] = React.useState<{
+    blob: Blob;
+    meta: { durationMs: number; mimeType: string };
+  } | null>(null);
+
+  const inputRef = React.useRef<HTMLTextAreaElement | null>(null);
+  const emojiWrapRef = React.useRef<HTMLDivElement | null>(null);
 
   const { user, loading } = useUser();
   const { typingByChatId } = useChatSync();
@@ -60,6 +82,10 @@ const ChatPane = ({ chatId }: { chatId: string; chat?: any }) => {
   const headerTitle = isGroup
     ? singleChat?.groupName || "Group"
     : otherUser?.displayName || otherUser?.userName || "New User";
+
+  const headerAvatarUrl = isGroup
+    ? singleChat?.avatarUrl
+    : otherUser?.avatarUrl;
 
   const typingUsers = typingByChatId?.[chatId] ?? [];
   const typingOtherIds = typingUsers
@@ -111,9 +137,6 @@ const ChatPane = ({ chatId }: { chatId: string; chat?: any }) => {
     otherUser?.lastSeenAt,
   ]);
 
-  // ----------------------------
-  // Scroll-to-bottom behaviour
-  // ----------------------------
   const scrollerRef = React.useRef<HTMLDivElement | null>(null);
   const bottomRef = React.useRef<HTMLDivElement | null>(null);
   const shouldStickToBottomRef = React.useRef(true);
@@ -162,9 +185,21 @@ const ChatPane = ({ chatId }: { chatId: string; chat?: any }) => {
     if (shouldStickToBottomRef.current) scrollToBottom("smooth");
   }, [messages.length, scrollToBottom]);
 
-  // ----------------------------
-  // React Query cache helpers
-  // ----------------------------
+  React.useEffect(() => {
+    if (!openEmoji) return;
+
+    const onPointerDown = (e: PointerEvent) => {
+      const root = emojiWrapRef.current;
+      if (!root) return;
+
+      if (!root.contains(e.target as Node)) setOpenEmoji(false);
+    };
+
+    document.addEventListener("pointerdown", onPointerDown, true);
+    return () =>
+      document.removeEventListener("pointerdown", onPointerDown, true);
+  }, [openEmoji]);
+
   const qc = useQueryClient();
   const chatKey = React.useMemo(() => ["chat", chatId], [chatId]);
 
@@ -179,9 +214,15 @@ const ChatPane = ({ chatId }: { chatId: string; chat?: any }) => {
     [qc, chatKey],
   );
 
-  // ----------------------------
-  // WS join / acks
-  // ----------------------------
+  const addOptimistic = React.useCallback(
+    (msg: LocalMessage) => {
+      patchMessages((prev) => [...prev, msg]);
+      shouldStickToBottomRef.current = true;
+      requestAnimationFrame(() => scrollToBottom("smooth"));
+    },
+    [patchMessages, scrollToBottom],
+  );
+
   React.useEffect(() => {
     if (!ws) return;
     ws.joinChat(chatId);
@@ -195,85 +236,6 @@ const ChatPane = ({ chatId }: { chatId: string; chat?: any }) => {
       ws.ackReadAll(chatId);
     }
   }, [ws, lastEvent, chatId]);
-
-  // out-of-order buffers
-  const pendingDeliveredRef = React.useRef<Set<string>>(new Set());
-  const pendingReadRef = React.useRef<Set<string>>(new Set());
-
-  // typing timers
-  const typingRef = React.useRef(false);
-  const stopTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  const bumpTyping = React.useCallback(() => {
-    if (!ws) return;
-
-    if (!typingRef.current) {
-      typingRef.current = true;
-      ws.typingStart(chatId);
-    }
-
-    if (stopTimerRef.current) clearTimeout(stopTimerRef.current);
-
-    stopTimerRef.current = setTimeout(() => {
-      typingRef.current = false;
-      ws.typingStop(chatId);
-    }, 900);
-  }, [ws, chatId]);
-
-  // ----------------------------
-  // SEND mutation (optimistic)
-  // ----------------------------
-  const sendMutation = useMutation({
-    mutationFn: async (text: string) => {
-      return apiClient.post(`/chat/messages/${chatId}/send`, {
-        message: text,
-        type: "text",
-      });
-    },
-    onMutate: async (text: string) => {
-      const trimmed = text.trim();
-      if (!trimmed) return;
-
-      await qc.cancelQueries({ queryKey: chatKey });
-
-      const clientId = `c_${Date.now()}_${Math.random().toString(16).slice(2)}`;
-
-      const optimistic: LocalMessage = {
-        _id: clientId as any,
-        clientId,
-        chatId: chatId as any,
-        senderId: user?._id as any,
-        type: "text" as any,
-        text: trimmed,
-        createdAt: new Date().toISOString(),
-        attachments: [],
-        localStatus: "sending",
-        deliveryStatus: "sending",
-      } as any;
-
-      patchMessages((prev) => [...prev, optimistic]);
-
-      return { clientId };
-    },
-    onError: (_err, _text, ctx) => {
-      if (!ctx?.clientId) return;
-
-      patchMessages((prev) =>
-        prev.map((m) =>
-          m.clientId === ctx.clientId
-            ? { ...m, localStatus: "failed", deliveryStatus: "sent" }
-            : m,
-        ),
-      );
-    },
-    onSuccess: () => {
-      // Do nothing: server WS `message_sent` will reconcile optimistic -> real id
-    },
-  });
-
-  // ----------------------------
-  // WS events -> cache updates
-  // ----------------------------
   React.useEffect(() => {
     if (!ws || !lastEvent) return;
 
@@ -425,17 +387,247 @@ const ChatPane = ({ chatId }: { chatId: string; chat?: any }) => {
     }
   }, [ws, lastEvent, chatId, user?._id, patchMessages]);
 
-  // ----------------------------
-  // Send / Retry handlers
-  // ----------------------------
+  // typing timers
+  const typingRef = React.useRef(false);
+  const stopTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const { bumpTyping } = useTyping({
+    ws,
+  });
+
+  // const bumpTyping = React.useCallback(() => {
+  //   if (!ws) return;
+
+  //   if (!typingRef.current) {
+  //     typingRef.current = true;
+  //     ws.typingStart(chatId);
+  //   }
+
+  //   if (stopTimerRef.current) clearTimeout(stopTimerRef.current);
+
+  //   stopTimerRef.current = setTimeout(() => {
+  //     typingRef.current = false;
+  //     ws.typingStop(chatId);
+  //   }, 900);
+  // }, [ws, chatId]);
+
+  const insertAtCursor = (textarea: HTMLTextAreaElement, insert: string) => {
+    const start = textarea.selectionStart ?? textarea.value.length;
+    const end = textarea.selectionEnd ?? textarea.value.length;
+
+    const next =
+      textarea.value.slice(0, start) + insert + textarea.value.slice(end);
+    textarea.value = next;
+
+    const pos = start + insert.length;
+    requestAnimationFrame(() => {
+      textarea.focus();
+      textarea.setSelectionRange(pos, pos);
+    });
+
+    return next;
+  };
+
+  const sendMutation = useMutation({
+    mutationFn: async (text: string) => {
+      return apiClient.post(`/chat/messages/${chatId}/send`, {
+        message: text,
+        type: "text",
+      });
+    },
+    onMutate: async (text: string) => {
+      const trimmed = text.trim();
+      if (!trimmed) return;
+
+      await qc.cancelQueries({ queryKey: chatKey });
+
+      const clientId = `c_${Date.now()}_${Math.random().toString(16).slice(2)}`;
+
+      const optimistic: LocalMessage = {
+        _id: clientId as any,
+        clientId,
+        chatId: chatId as any,
+        senderId: user?._id as any,
+        type: "text" as any,
+        text: trimmed,
+        createdAt: new Date().toISOString(),
+        attachments: [],
+        localStatus: "sending",
+        deliveryStatus: "sending",
+      } as any;
+
+      patchMessages((prev) => [...prev, optimistic]);
+
+      return { clientId };
+    },
+    onError: (_err, _text, ctx) => {
+      if (!ctx?.clientId) return;
+
+      patchMessages((prev) =>
+        prev.map((m) =>
+          m.clientId === ctx.clientId
+            ? { ...m, localStatus: "failed", deliveryStatus: "sent" }
+            : m,
+        ),
+      );
+    },
+    onSuccess: () => {
+      // Do nothing: server WS `message_sent` will reconcile optimistic -> real id
+    },
+  });
+  const sendImageOptimistic = async (file: File) => {
+    if (!user?._id) return;
+
+    const clientId = `c_${Date.now()}_${Math.random().toString(16).slice(2)}`;
+
+    // show local preview immediately
+    const localUrl = URL.createObjectURL(file);
+
+    addOptimistic({
+      _id: clientId as any,
+      clientId,
+      chatId: chatId as any,
+      senderId: user._id as any,
+      type: "image" as any,
+      text: draft?.trim() ?? "",
+      createdAt: new Date().toISOString(),
+      attachments: [{ kind: "image", url: localUrl }],
+      localStatus: "sending",
+      deliveryStatus: "sending",
+    } as any);
+
+    try {
+      // 1) upload to Cloudinary (frontend)
+      const { url } = await uploadToCloudinary(file, { kind: "image" });
+
+      // swap optimistic attachment to real url (so WS reconciliation can match)
+      patchMessages((prev) =>
+        prev.map((m: any) =>
+          m.clientId === clientId
+            ? { ...m, attachments: [{ kind: "image", url }] }
+            : m,
+        ),
+      );
+
+      // 2) send message to backend
+      await apiClient.post(`/chat/messages/${chatId}/send`, {
+        type: "image",
+        message: draft?.trim() ?? "",
+        attachments: [{ kind: "image", url }],
+      });
+    } catch (e) {
+      // mark failed
+      patchMessages((prev) =>
+        prev.map((m: any) =>
+          m.clientId === clientId
+            ? { ...m, localStatus: "failed", deliveryStatus: "sent" }
+            : m,
+        ),
+      );
+    } finally {
+      // clear picker
+      setImgFile(null);
+      // don't revoke localUrl immediately if it's currently rendered; OK to leave,
+      // or revoke after you swap to cloud url (best-effort):
+      setTimeout(() => URL.revokeObjectURL(localUrl), 10_000);
+    }
+  };
+
+  const sendVoiceOptimistic = async (
+    blob: Blob,
+    meta: { durationMs: number; mimeType: string },
+  ) => {
+    if (!user?._id) return;
+
+    const clientId = `c_${Date.now()}_${Math.random().toString(16).slice(2)}`;
+
+    const localUrl = URL.createObjectURL(blob);
+
+    addOptimistic({
+      _id: clientId as any,
+      clientId,
+      chatId: chatId as any,
+      senderId: user._id as any,
+      type: "file" as any,
+      text: "",
+      createdAt: new Date().toISOString(),
+      attachments: [{ kind: "file", url: localUrl }],
+      localStatus: "sending",
+      deliveryStatus: "sending",
+    } as any);
+
+    try {
+      // Cloudinary: upload audio as "video"
+      const file = new File([blob], `voice_${Date.now()}.webm`, {
+        type: meta.mimeType || "audio/webm",
+      });
+
+      const { url } = await uploadToCloudinary(file, { kind: "audio" });
+      // ^ if your upload helper maps "audio" -> resourceType "video" internally
+
+      patchMessages((prev) =>
+        prev.map((m: any) =>
+          m.clientId === clientId
+            ? { ...m, attachments: [{ kind: "file", url }] }
+            : m,
+        ),
+      );
+
+      await apiClient.post(`/chat/messages/${chatId}/send`, {
+        type: "file",
+        message: "",
+        attachments: [{ kind: "file", url }],
+      });
+    } catch (e) {
+      patchMessages((prev) =>
+        prev.map((m: any) =>
+          m.clientId === clientId
+            ? { ...m, localStatus: "failed", deliveryStatus: "sent" }
+            : m,
+        ),
+      );
+    } finally {
+      setVoiceDraft(null);
+      setTimeout(() => URL.revokeObjectURL(localUrl), 10_000);
+    }
+  };
+
+  const sendVoice = async (
+    blob: Blob,
+    meta: { durationMs: number; mimeType: string },
+  ) => {
+    const fd = new FormData();
+    fd.append(
+      "file",
+      blob,
+      `voice.${meta.mimeType.includes("ogg") ? "ogg" : "webm"}`,
+    );
+    fd.append("durationMs", String(meta.durationMs));
+    fd.append("mimeType", meta.mimeType);
+
+    await apiClient.post(`/chat/messages/${chatId}/send-voice`, fd, {
+      headers: { "Content-Type": "multipart/form-data" },
+    });
+  };
+
   const onSend = async () => {
+    // priority: image -> voice -> text
+    if (imgFile) {
+      await sendImageOptimistic(imgFile);
+      return;
+    }
+
+    if (voiceDraft) {
+      await sendVoiceOptimistic(voiceDraft.blob, voiceDraft.meta);
+      return;
+    }
+
     const text = draft.trim();
     if (!text) return;
 
     setDraft("");
     shouldStickToBottomRef.current = true;
 
-    // stop typing immediately on send
     if (typingRef.current) {
       typingRef.current = false;
       ws?.typingStop(chatId);
@@ -488,10 +680,7 @@ const ChatPane = ({ chatId }: { chatId: string; chat?: any }) => {
             </Link>
           </div>
 
-          <div className="min-h-10 min-w-10 rounded-2xl bg-elevated border border-white/5 flex items-center justify-center">
-            <span className="font-semibold">{getInitials(headerTitle)}</span>
-          </div>
-
+          <Avatar userName={headerTitle} avatarUrl={headerAvatarUrl} />
           <button
             className="min-w-0 cursor-pointer"
             onClick={() => setOpenSettingsModal(true)}
@@ -576,7 +765,45 @@ const ChatPane = ({ chatId }: { chatId: string; chat?: any }) => {
                             </span>
                           ) : null}
 
-                          <p>{m.text}</p>
+                          <div>
+                            {m.attachments?.length > 0 &&
+                              m.attachments.map((a, i) => {
+                                if (a.kind === "image") {
+                                  return (
+                                    <Image
+                                      key={i}
+                                      src={a.url}
+                                      alt={`attachment-${i}`}
+                                      className="max-h-60 rounded-lg object-cover"
+                                      height={240}
+                                      width={240}
+                                    />
+                                  );
+                                }
+
+                                if (a.kind === "file") {
+                                  // treat as audio if it looks like audio
+                                  const isAudio =
+                                    /\.webm$|\.ogg$|\.mp3$|\.wav$|\.m4a$/i.test(
+                                      a.url,
+                                    ) || String(m.type) === "file";
+
+                                  return isAudio ? (
+                                    <audio
+                                      key={i}
+                                      controls
+                                      className="w-full min-w-20 mt-2"
+                                    >
+                                      <source src={a.url} />
+                                    </audio>
+                                  ) : null;
+                                }
+
+                                return null;
+                              })}
+
+                            <p>{m.text}</p>
+                          </div>
 
                           <div className="mt-1 flex items-center justify-end gap-2">
                             {/* failed */}
@@ -643,42 +870,65 @@ const ChatPane = ({ chatId }: { chatId: string; chat?: any }) => {
       </div>
 
       {/* composer */}
-      <div
-        className="sticky bottom-0 z-20 p-3 sm:p-4 border-t border-white/5 bg-surface shrink-0"
-        style={{ transform: `translateY(-${kbOffset}px)` }}
-      >
-        <div className="mx-auto max-w-3xl flex items-end gap-2">
+      {/* <div className="flex items-center w-full"> */}
+      <div className="sticky bottom-0 z-20 p-3 sm:p-4 border-t border-white/5 bg-surface shrink-0 grid grid-cols-[1fr_28px] md:grid-cols-[1fr_48px] gap-1">
+        <div className="max-w-3xl flex items-start gap-1 relative">
+          {/* ✅ media actions */}
+          <ComposerMediaActions
+            disabled={sendMutation.isPending}
+            imgFile={imgFile}
+            setImgFile={setImgFile}
+            voiceDraft={voiceDraft}
+            setVoiceDraft={setVoiceDraft}
+          />
+
+          {/* your textarea */}
           <div className="flex-1">
             <div className="input-wrap">
-              <input
-                className="input"
+              <textarea
+                className="input resize-none leading-relaxed"
                 placeholder="Type a message"
+                rows={1}
                 value={draft}
                 onChange={(e) => {
                   setDraft(e.target.value);
                   bumpTyping();
                 }}
-                onKeyDown={onKeyDown}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault();
+                    onSend();
+                  }
+                }}
+                ref={inputRef}
               />
             </div>
             <p className="mt-1 text-[11px] text-muted">
-              Press <span className="text-ink-100">Enter</span> to send
+              Press <span className="text-ink-100">Enter</span> to send •{" "}
+              <span className="text-ink-100">Shift+Enter</span> for new line
             </p>
           </div>
 
-          <div className="w-12 absolute top-4 right-11">
-            <button
-              type="button"
-              onClick={onSend}
-              className="btn btn-primary px-5 py-2.5"
-              disabled={sendMutation.isPending}
-            >
-              {sendMutation.isPending ? "…" : ">"}
-            </button>
-          </div>
+          {/* your emoji button block stays */}
+          {/* ... */}
+        </div>
+
+        {/* send button */}
+        <div className="w-7 md:w-12">
+          <button
+            type="button"
+            onClick={onSend}
+            className={`btn btn-primary md:px-5 md:py-2.5 ${
+              sendMutation.isPending ? "cursor-not-allowed opacity-70" : ""
+            }`}
+            disabled={sendMutation.isPending}
+          >
+            {sendMutation.isPending ? "…" : <Telegram />}
+          </button>
         </div>
       </div>
 
+      {/* </div> */}
       {/* settings modal (group view / user view) */}
       <WhatsAppSettingsModal
         open={openSettingsModal}
@@ -687,6 +937,17 @@ const ChatPane = ({ chatId }: { chatId: string; chat?: any }) => {
         curChat={singleChat}
         otherUsers={isGroup ? members : []}
         targetUser={isGroup ? null : otherUser}
+        onLogout={async () => {
+          toast.loading("Logging out...");
+          try {
+            await apiClient.post("/users/logout");
+            toast.remove();
+            toast.success("Logged out successfully");
+            window.location.href = "/login";
+          } catch (error) {
+            console.error("Logout error:", error);
+          }
+        }}
       />
 
       {/* add members modal */}

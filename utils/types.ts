@@ -63,9 +63,12 @@ export type ChatType = "dm" | "group";
 export type Chat = {
   _id: ObjectIdString;
   type: ChatType;
+  admins: ObjectIdString[];
+  avatarUrl?: string; // optional avatar for group chats, usually null for DMs
 
   members: UserType[]; // usually length 2 for dm, >= 3 for group
   dmKey?: string; // present for dm, optional for group
+  description?: string; // optional description for group chats
 
   isMuted: boolean;
   isSpam: boolean;
@@ -110,6 +113,7 @@ export type Attachment = {
   name?: string;
   size?: number;
   mime?: string;
+  kind?: "image" | "file" | "video" | "audio";
 };
 
 export type MessageRes = {

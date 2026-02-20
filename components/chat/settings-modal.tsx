@@ -15,6 +15,7 @@ import { getInitials } from "@/utils/helpers";
 import { apiClient } from "@/lib/api/axios-client";
 import { useUser } from "@/contexts/user-cintext";
 import type { Chat, UserType } from "@/utils/types";
+import { uploadToCloudinary } from "@/lib/cloudinary/upload";
 
 type UserLike = {
   _id?: string;
@@ -38,7 +39,7 @@ type Props = {
 
   targetUser?: UserType | null;
 
-  curChat?: Chat | null;
+  curChat?: Chat | any | null;
   otherUsers?: UserType[];
   onLogout?: () => void;
 
@@ -47,6 +48,30 @@ type Props = {
 
 const clamp = (v: string, n: number) =>
   typeof v === "string" ? v.slice(0, n) : "";
+
+const isAdminFromChat = (chat: any, meId?: string) => {
+  const meKey = String(meId ?? "");
+  if (!chat || !meKey) return false;
+
+  // 1) memberRoles might be serialized as plain object: { "<userId>": "admin" }
+  if (chat.memberRoles && typeof chat.memberRoles === "object") {
+    if (chat.memberRoles[meKey] === "admin") return true;
+    // 2) memberRoles might be Map-like
+    if (typeof chat.memberRoles.get === "function") {
+      if (chat.memberRoles.get(meKey) === "admin") return true;
+    }
+  }
+
+  // 3) fallback to createdBy
+  if (chat.createdBy && String(chat.createdBy) === meKey) return true;
+
+  // 4) legacy: admins array (if you ever had it)
+  if (Array.isArray(chat.admins)) {
+    if (chat.admins.some((a: any) => String(a) === meKey)) return true;
+  }
+
+  return false;
+};
 
 const WhatsAppSettingsModal = ({
   open,
@@ -66,12 +91,23 @@ const WhatsAppSettingsModal = ({
 
   const viewingUser: UserLike | null = isMe ? (me as any) : targetUser;
 
+  // ✅ admin check that matches your schema realities
+  const amAdmin = React.useMemo(
+    () => isAdminFromChat(curChat, String(me?._id ?? "")),
+    [curChat, me?._id],
+  );
+
+  const canEditGroup = isGroup && amAdmin;
+  const canToggle = isMe || canEditGroup;
+
   // --- edit mode per field (WhatsApp style) ---
   const [edit, setEdit] = React.useState({
     name: false,
     username: false,
     bio: false,
     phone: false,
+    groupName: false,
+    description: false,
   });
 
   const [saving, setSaving] = React.useState(false);
@@ -83,6 +119,11 @@ const WhatsAppSettingsModal = ({
     phone: "",
   });
 
+  const [formGroup, setFormGroup] = React.useState({
+    groupName: "",
+    description: "",
+  });
+
   const [avatarFile, setAvatarFile] = React.useState<File | null>(null);
   const [avatarPreview, setAvatarPreview] = React.useState<string | null>(null);
 
@@ -91,16 +132,20 @@ const WhatsAppSettingsModal = ({
     if (!open) return;
 
     setSaving(false);
-    setEdit({ name: false, username: false, bio: false, phone: false });
+    setEdit({
+      name: false,
+      username: false,
+      bio: false,
+      phone: false,
+      groupName: false,
+      description: false,
+    });
 
     if (isGroup) {
-      setForm((p) => ({
-        ...p,
-        displayName: curChat?.groupName ?? "",
-        userName: "",
-        bio: "",
-        phone: "",
-      }));
+      setFormGroup({
+        groupName: curChat?.groupName ?? "",
+        description: curChat?.description ?? "",
+      });
     } else {
       setForm({
         displayName: viewingUser?.displayName ?? "",
@@ -112,7 +157,13 @@ const WhatsAppSettingsModal = ({
 
     setAvatarFile(null);
     setAvatarPreview(null);
-  }, [open, isGroup, curChat?.groupName, viewingUser?._id]);
+  }, [
+    open,
+    isGroup,
+    curChat?.groupName,
+    curChat?.description, // ✅ include description to avoid stale values
+    viewingUser?._id,
+  ]);
 
   React.useEffect(() => {
     if (!avatarFile) return;
@@ -126,13 +177,17 @@ const WhatsAppSettingsModal = ({
   };
 
   const toggle = (key: keyof typeof edit) => {
-    if (!isMe) return; // read-only
+    if (!canToggle) return; // ✅ allow group admins too
     setEdit((p) => ({ ...p, [key]: !p[key] }));
   };
 
+  // console.log(curChat);
+
   const currentAvatarSrc =
     avatarPreview ||
-    (isGroup ? undefined : viewingUser?.avatarUrl) ||
+    (isGroup
+      ? (curChat?.avatarUrl as string | undefined)
+      : viewingUser?.avatarUrl) ||
     undefined;
 
   const titleText =
@@ -141,6 +196,13 @@ const WhatsAppSettingsModal = ({
       : mode === "user_view"
         ? "Contact info"
         : "Profile";
+
+  const uploadImageToCloudinary = async (file: File) => {
+    const { url } = await uploadToCloudinary(file, {
+      kind: file.type.startsWith("image/") ? "image" : "audio",
+    });
+    return url;
+  };
 
   // detect changes (only used in me mode)
   const hasChanges = React.useMemo(() => {
@@ -156,6 +218,19 @@ const WhatsAppSettingsModal = ({
     return changed;
   }, [isMe, me, form, avatarFile]);
 
+  const hasGroupChanges = React.useMemo(() => {
+    if (!isGroup || !curChat) return false;
+    if (!canEditGroup) return false;
+
+    const changed =
+      (formGroup.groupName ?? "").trim() !== (curChat.groupName ?? "").trim() ||
+      (formGroup.description ?? "").trim() !==
+        (curChat.description ?? "").trim() ||
+      !!avatarFile;
+
+    return changed;
+  }, [isGroup, curChat, formGroup, canEditGroup]);
+
   const saveMyProfile = async () => {
     if (!isMe || !me) return;
 
@@ -167,17 +242,28 @@ const WhatsAppSettingsModal = ({
       !avatarFile;
 
     if (noChanges) {
-      setEdit({ name: false, username: false, bio: false, phone: false });
+      setEdit({
+        name: false,
+        username: false,
+        bio: false,
+        phone: false,
+        groupName: false,
+        description: false,
+      });
       return;
     }
 
     setSaving(true);
     try {
+      let url: string | null = null;
+      if (avatarFile) url = await uploadImageToCloudinary(avatarFile);
+
       const payload = {
         displayName: clamp(form.displayName.trim(), 60),
         userName: clamp(form.userName.trim().replace(/\s+/g, ""), 30),
         bio: clamp(form.bio, 139).trim(),
         phone: clamp(form.phone.trim(), 30),
+        ...(url && { avatarUrl: url }),
       };
 
       const { data } = await apiClient.patch("/users/me", payload);
@@ -186,7 +272,15 @@ const WhatsAppSettingsModal = ({
         data?.data?.user || data?.data?.data || data?.user || data;
 
       setUser(updatedUser);
-      setEdit({ name: false, username: false, bio: false, phone: false });
+
+      setEdit({
+        name: false,
+        username: false,
+        bio: false,
+        phone: false,
+        groupName: false,
+        description: false,
+      });
       setAvatarFile(null);
       setAvatarPreview(null);
 
@@ -197,6 +291,49 @@ const WhatsAppSettingsModal = ({
         err?.response?.data?.message ||
           err?.message ||
           "Failed to update profile",
+      );
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const saveGroupInfo = async () => {
+    if (!isGroup || !curChat?._id) return;
+    if (!canEditGroup) return;
+
+    const groupName = clamp((formGroup.groupName ?? "").trim(), 60);
+    const description = clamp((formGroup.description ?? "").trim(), 139);
+
+    const noChanges =
+      groupName === (curChat.groupName ?? "").trim() &&
+      description === (curChat.description ?? "").trim() &&
+      avatarFile === null;
+
+    if (noChanges) {
+      setEdit((p) => ({ ...p, groupName: false, description: false }));
+      return;
+    }
+
+    setSaving(true);
+    let url: string | null = null;
+    try {
+      if (avatarFile) url = await uploadImageToCloudinary(avatarFile);
+
+      const { data } = await apiClient.patch(`/chat/group/${curChat._id}`, {
+        groupName,
+        description,
+        ...(url && { avatarUrl: url }),
+      });
+
+      setEdit((p) => ({ ...p, groupName: false, description: false }));
+
+      toast.success("Group updated");
+      router.refresh();
+    } catch (err: any) {
+      toast.error(
+        err?.response?.data?.message ||
+          err?.message ||
+          "Failed to update group",
       );
     } finally {
       setSaving(false);
@@ -226,6 +363,7 @@ const WhatsAppSettingsModal = ({
             <p className="text-sm font-semibold">{titleText}</p>
           </div>
 
+          {/* Save button (me OR group admin) */}
           {isMe ? (
             <div>
               <button
@@ -233,6 +371,17 @@ const WhatsAppSettingsModal = ({
                 onClick={saveMyProfile}
                 disabled={!hasChanges || saving}
                 title={!hasChanges ? "No changes" : "Save"}
+              >
+                {saving ? "Saving..." : "Save"}
+              </button>
+            </div>
+          ) : isGroup && canEditGroup ? (
+            <div>
+              <button
+                className="btn btn-primary px-3 py-2 text-xs"
+                onClick={saveGroupInfo}
+                disabled={!hasGroupChanges || saving}
+                title={!hasGroupChanges ? "No changes" : "Save"}
               >
                 {saving ? "Saving..." : "Save"}
               </button>
@@ -253,7 +402,7 @@ const WhatsAppSettingsModal = ({
                 />
 
                 {/* Only allow changing avatar for "me" */}
-                {isMe ? (
+                {isMe || canEditGroup ? (
                   <label className="absolute -bottom-1 -right-1 grid h-9 w-9 cursor-pointer place-items-center rounded-full bg-brand-gradient text-black shadow-lg">
                     <PhotoCameraIcon fontSize="small" />
                     <input
@@ -290,6 +439,17 @@ const WhatsAppSettingsModal = ({
                     </p>
                   </div>
                 </div>
+              ) : isGroup ? (
+                <div className="mt-2 w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3">
+                  <div className="flex items-start gap-2">
+                    <InfoOutlinedIcon fontSize="small" />
+                    <p className="text-xs text-muted">
+                      {canEditGroup
+                        ? "You’re an admin. You can edit group name and description."
+                        : "Only admins can edit group name and description."}
+                    </p>
+                  </div>
+                </div>
               ) : null}
             </div>
           </div>
@@ -300,8 +460,38 @@ const WhatsAppSettingsModal = ({
               <>
                 <SectionTitle title="Group info" />
 
-                {/* Group name (read-only for now; you can wire edit later) */}
-                <ReadOnlyRow label="Name" value={curChat?.groupName ?? ""} />
+                <FieldCard
+                  label="Name"
+                  helper="This is the group name."
+                  value={formGroup.groupName}
+                  viewValue={curChat?.groupName ?? ""}
+                  editing={edit.groupName}
+                  disabled={saving}
+                  readOnly={!canEditGroup} // ✅
+                  onToggle={() => toggle("groupName")}
+                  onChange={(v) =>
+                    setFormGroup((p) => ({ ...p, groupName: clamp(v, 60) }))
+                  }
+                />
+
+                <FieldCard
+                  label="Description"
+                  helper="Up to 139 characters."
+                  value={formGroup.description}
+                  viewValue={curChat?.description ?? ""}
+                  editing={edit.description}
+                  disabled={saving}
+                  readOnly={!canEditGroup} // ✅
+                  multiline
+                  maxLen={139}
+                  onToggle={() => toggle("description")}
+                  onChange={(v) =>
+                    setFormGroup((p) => ({
+                      ...p,
+                      description: clamp(v, 139),
+                    }))
+                  }
+                />
 
                 <SectionTitle title="Members" />
                 <div className="mb-3 rounded-2xl border border-white/10 bg-elevated px-4 py-3">
@@ -310,6 +500,11 @@ const WhatsAppSettingsModal = ({
                     const label = isYou
                       ? "You"
                       : usr?.displayName || usr?.userName || "New User";
+
+                    const isAdmin = isAdminFromChat(
+                      curChat,
+                      String(usr?._id ?? ""),
+                    );
 
                     return (
                       <div
@@ -328,14 +523,20 @@ const WhatsAppSettingsModal = ({
                           <AvatarFallback userName={label} size="md" />
                         )}
 
-                        <div className="min-w-0">
-                          <p className="truncate text-sm text-ink-100">
-                            {label}
-                          </p>
-                          {usr?.email ? (
-                            <p className="truncate text-[11px] text-muted">
-                              {usr.email}
+                        <div className="flex items-center justify-between gap-3 w-full">
+                          <div className="min-w-0">
+                            <p className="truncate text-sm text-ink-100">
+                              {label}
                             </p>
+                            {usr?.email ? (
+                              <p className="truncate text-[11px] text-muted">
+                                {usr.email}
+                              </p>
+                            ) : null}
+                          </div>
+
+                          {isAdmin ? (
+                            <p className="text-xs text-muted italic">admin</p>
                           ) : null}
                         </div>
                       </div>
@@ -425,7 +626,7 @@ const WhatsAppSettingsModal = ({
                   }
                 />
 
-                {/* Theme block (pluckable) */}
+                {/* Theme block */}
                 <div className="mb-3">
                   <ThemePickerRow value={themeValue} />
                 </div>
@@ -437,6 +638,7 @@ const WhatsAppSettingsModal = ({
                   label="Logout"
                   value="Sign out of MystChats"
                   logout={onLogout}
+                  isLogout
                 />
               </>
             )}
@@ -459,10 +661,12 @@ export const ReadOnlyRow = ({
   label,
   value,
   logout,
+  isLogout,
 }: {
   label: string;
   value: string;
   logout?: () => void;
+  isLogout?: boolean;
 }) => {
   return (
     <div className="mb-3 rounded-2xl border border-white/10 bg-elevated px-4 py-3">
@@ -472,14 +676,16 @@ export const ReadOnlyRow = ({
           <p className="truncate text-sm text-ink-100">{value || "—"}</p>
         </div>
 
-        {logout ? (
-          <button
-            className="btn btn-ghost px-2 py-2 flex items-center gap-2"
-            onClick={logout}
-            aria-label="Logout"
-          >
-            <Logout fontSize="small" /> <span>Logout</span>
-          </button>
+        {isLogout ? (
+          <div>
+            <button
+              className="btn bg-red-600 text-white hover:bg-transparent hover:border hover:border-red-600 hover:text-red-600 transition-all duration-300 px-2 py-2 flex items-center gap-2"
+              onClick={logout}
+              aria-label="Logout"
+            >
+              <Logout fontSize="small" /> <span>Logout</span>
+            </button>
+          </div>
         ) : null}
       </div>
     </div>
@@ -680,12 +886,12 @@ export const AvatarFallback = ({
 }) => {
   const sizeClass =
     size === "sm"
-      ? "h-8 w-8"
+      ? "min-h-8 min-w-8"
       : size === "md"
-        ? "h-12 w-12"
+        ? "min-h-12 min-w-12"
         : size === "lg"
-          ? "h-16 w-16"
-          : "h-24 w-24";
+          ? "min-h-16 min-w-16"
+          : "min-h-24 min-w-24";
 
   const textSize =
     size === "sm"

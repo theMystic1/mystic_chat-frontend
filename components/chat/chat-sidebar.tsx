@@ -16,6 +16,10 @@ import WhatsAppSettingsModal from "./settings-modal";
 import { ProfileModalShell } from "./profile-shell";
 import { UserType } from "@/utils/types";
 import { useChats } from "@/hooks/useChats";
+import { useTyping } from "@/hooks/useBumbTyping";
+import Image from "next/image";
+import { toast } from "react-hot-toast";
+import { apiClient } from "@/lib/api/axios-client";
 
 type LastMessage =
   | string
@@ -42,7 +46,10 @@ const ChatSidebar = () => {
   const { user, loading } = useUser();
   const { setActiveChatId } = useChatSync();
   const { filtered } = useChats();
-  const { isOnline } = useWs();
+  const { isOnline, ws } = useWs();
+  const { bumpTyping } = useTyping({
+    ws,
+  });
 
   React.useEffect(() => {
     setActiveChatId(activeChatId || null);
@@ -144,7 +151,10 @@ const ChatSidebar = () => {
               }}
             >
               <div className="relative">
-                <Avatar userName={userName} />
+                <Avatar
+                  userName={userName}
+                  avatarUrl={otherUser?.avatarUrl || c?.avatarUrl || ""}
+                />
 
                 {isOnline(otherUser?._id) ? (
                   <span className="absolute -right-0.5 -bottom-0.5 h-3 w-3 rounded-full bg-success-500 border border-bg" />
@@ -213,14 +223,29 @@ const colorMix = [
   { bg: "bg-gray-600", text: "text-white" },
   { bg: "bg-gray-700", text: "text-white" },
 ];
-export const Avatar = ({ userName }: { userName: string }) => {
+export const Avatar = ({
+  userName,
+  avatarUrl,
+}: {
+  userName: string;
+  avatarUrl: string;
+}) => {
   //
 
   return (
     <div
-      className={`${colorMix[getInitials(userName).charCodeAt(1) % colorMix.length || 3]?.bg} ${colorMix[getInitials(userName)?.charCodeAt(1) % colorMix.length]?.text} min-h-10 min-w-10 rounded-2xl flex items-center justify-center`}
+      className={`${colorMix[getInitials(userName).charCodeAt(1) % colorMix.length || 3]?.bg} ${colorMix[getInitials(userName)?.charCodeAt(1) % colorMix.length]?.text} min-h-10 min-w-10 rounded-2xl flex items-center justify-center relative`}
     >
-      <span className="font-semibold text-sm">{getInitials(userName)}</span>
+      {avatarUrl ? (
+        <Image
+          src={avatarUrl}
+          alt="Avatar"
+          className="w-full h-full rounded-2xl object-cover"
+          fill
+        />
+      ) : (
+        <span className="font-semibold text-sm">{getInitials(userName)}</span>
+      )}
     </div>
   );
 };
@@ -240,6 +265,22 @@ const SettingsModal = ({
       onClose={() => setOpenModal(false)}
       // user={curUser}
       // onSave={async () => {}}
+      onLogout={async () => {
+        toast.loading("Logging out...");
+        try {
+          await apiClient.post("/users/logout");
+          toast.remove();
+          toast.success("Logged out successfully");
+          window.location.href = "/signin";
+        } catch (error: any) {
+          toast.remove();
+          toast.error(
+            error?.response?.data?.message ||
+              "Logout failed. Please try again.",
+          );
+          console.error("Logout error:", error);
+        }
+      }}
     />
   );
 };

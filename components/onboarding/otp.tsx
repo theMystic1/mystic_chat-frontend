@@ -108,11 +108,11 @@ const Otp = () => {
       // TODO: call your verify endpoint
       const user = await verifyEmail(email!, code);
 
-      console.log(user?.user);
+      // console.log(user?.user);
 
       const mainUser = user?.user?.data?.user || user?.data;
 
-      console.log(mainUser);
+      // console.log(mainUser);
       toast.remove();
       toast.success(user?.message || "Signin successful");
 

@@ -37,8 +37,6 @@ const normalizeInitialChats = (chats: ChatListItem[]): ChatListItem[] => {
     };
   });
 };
-
-// ---- helpers to update react-query cache ----
 const mapIncomingToMessage = (m: any) => {
   return {
     _id: String(m.id ?? m._id),
@@ -115,7 +113,6 @@ export const ChatSyncProvider = ({
   React.useEffect(() => {
     if (!ws || !lastEvent) return;
 
-    // ✅ chat created
     if (lastEvent.type === "chat_created") {
       const c = lastEvent.data;
       const chatId = String(c.id ?? c._id);
@@ -138,7 +135,6 @@ export const ChatSyncProvider = ({
         return [newChat, ...prev];
       });
 
-      // ✅ seed minimal cache so opening the chat doesn't "miss"
       qc.setQueryData(["chat", chatId], (old: any) => {
         if (old) return old;
         return {
@@ -150,10 +146,8 @@ export const ChatSyncProvider = ({
         };
       });
 
-      // members cache (optional seed)
       qc.setQueryData(["chat-members", chatId], (old: any) => old ?? c.members);
 
-      // subscribe
       ws.joinChat(chatId);
 
       return;

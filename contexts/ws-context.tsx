@@ -8,11 +8,9 @@ type Ctx = {
   ws: WsClient | null;
   lastEvent: ServerEvent | null;
 
-  // ✅ presence
   onlineUserIds: Set<string>;
   isOnline: (userId?: string | null) => boolean;
 
-  // wrappers (so components don't touch private send)
   joinChat: (chatId: string) => void;
   leaveChat: (chatId: string) => void;
   ackDelivered: (chatId: string, messageId: string) => void;
@@ -32,12 +30,10 @@ export const WsProvider = ({
 }) => {
   const [lastEvent, setLastEvent] = React.useState<ServerEvent | null>(null);
 
-  // ✅ presence state
   const [onlineUserIds, setOnlineUserIds] = React.useState<Set<string>>(
     () => new Set(),
   );
 
-  // create client once
   const ws = React.useMemo(() => {
     const url = process.env.NEXT_PUBLIC_WS_URL!;
     return new WsClient(url);
@@ -47,7 +43,6 @@ export const WsProvider = ({
     const off = ws.on((evt) => {
       setLastEvent(evt);
 
-      // ✅ presence snapshot (critical for “user was online before I connected”)
       if (evt.type === "presence_state") {
         const ids = (evt.data?.onlineUserIds ?? []).map(String);
         setOnlineUserIds(new Set(ids));
