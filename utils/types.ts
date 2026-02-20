@@ -63,12 +63,16 @@ export type ChatType = "dm" | "group";
 export type Chat = {
   _id: ObjectIdString;
   type: ChatType;
+  admins: ObjectIdString[];
+  avatarUrl?: string; // optional avatar for group chats, usually null for DMs
 
   members: UserType[]; // usually length 2 for dm, >= 3 for group
   dmKey?: string; // present for dm, optional for group
+  description?: string; // optional description for group chats
 
   isMuted: boolean;
   isSpam: boolean;
+  groupName?: string; // for group chats, optional for users in DM chats
 
   lastMessageId?: ChatMessage | null; // populated object OR id OR null
   lastReadAt: string | null; // ISO string or null
@@ -109,6 +113,7 @@ export type Attachment = {
   name?: string;
   size?: number;
   mime?: string;
+  kind?: "image" | "file" | "video" | "audio";
 };
 
 export type MessageRes = {
@@ -156,4 +161,35 @@ export type LocalMessage = MessageRes & {
   clientId?: string;
   localStatus?: "sending" | "sent" | "failed"; // keep if you want
   deliveryStatus?: DeliveryStatus; // ✅ add this
+};
+
+export type ReceiptStatus = "sent" | "delivered" | "read";
+
+export type ChatListItem = {
+  _id: string;
+  members: any[];
+  unreadCount?: number;
+
+  lastMessageId?: any | null;
+
+  lastMessageMessageId?: string | null;
+  lastMessageText?: string;
+  lastMessageAt?: string;
+  lastMessageSenderId?: string | null;
+};
+
+export type ChatSyncState = {
+  chats: ChatListItem[];
+  setChats: React.Dispatch<React.SetStateAction<ChatListItem[]>>;
+
+  activeChatId: string | null;
+  setActiveChatId: (id: string | null) => void;
+
+  lastReceiptByChatId: Record<
+    string,
+    { messageId: string; status: ReceiptStatus }
+  >;
+
+  typingByChatId: any;
+  onlineUserIds: any;
 };

@@ -22,7 +22,7 @@ export const proxy = async (
         ? await api.request({ method, url: path, ...config })
         : await api.request({ method, url: path, data: body, ...config });
 
-    console.log("[proxy] backend status:", res.status);
+    console.warn("[proxy] backend status:", res.status);
     return NextResponse.json(res.data, { status: res.status });
   } catch (e) {
     if (axios.isAxiosError(e)) {

@@ -1,6 +1,6 @@
 import { proxy } from "@/utils/api/proxi";
 
-export const POST = async (
+export const GET = async (
   req: Request,
   { params }: { params: { chatId: string } },
 ) => {
@@ -9,5 +9,5 @@ export const POST = async (
 
   // console.log("chatId", chatId);
 
-  return proxy("POST", `/chat/messages/${chatId}/send`, body);
+  return proxy("GET", `/chat/messages/${chatId}`, body);
 };

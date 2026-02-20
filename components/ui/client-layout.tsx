@@ -12,7 +12,7 @@ const ClientLayout = ({ children }: { children: ReactNode }) => {
   const pathname = usePathname();
   return (
     <main
-      className={`relative min-h-screen w-full mx-auto  ${pathname.includes("/chat") ? "" : "flex flex-col lg:items-center justify-center"}  max-w-7xl px-5 lg:px-4 `}
+      className={`relative min-h-screen w-full mx-auto  ${pathname.includes("/chat") ? "" : "flex flex-col lg:items-center justify-center px-5 "}  max-w-7xl lg:px-4 `}
     >
       <nav
         className={`${pathname.includes("/chat") ? "hidden" : "fixed"} top-0 right-0 left-0 shadow-2xs h-16 px-12  flex items-center justify-center gap-2 w-full z-50 bg-bg`}
