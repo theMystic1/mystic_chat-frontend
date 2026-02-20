@@ -204,7 +204,7 @@ const Card = () => {
                   </p>
                 ) : (
                   <p className="text-xs text-muted">
-                    We’ll never share your email with anyone.
+                    Don't worry, your email is safe with us
                   </p>
                 )}
               </div>
