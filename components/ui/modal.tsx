@@ -96,7 +96,7 @@ const Modal = ({
             <button
               type="button"
               onClick={onClose}
-              className="h-6 w-6 absolute right-4 items-center justify-center text-center rounded-full  px-3 py-2 text-xs shrink-0"
+              className="h-10 w-10 absolute right-4 top-4 items-center justify-center text-center rounded-full  px-3 py-2 text-xs shrink-0 z-50"
               aria-label="Close"
             >
               ✕

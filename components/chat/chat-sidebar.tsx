@@ -75,6 +75,8 @@ const ChatSidebar = () => {
   //     );
   //   });
   // }, [query, chats, user?._id]);
+  //
+  // console.log(filtered);
 
   if (loading) return <AppLoader />;
 
@@ -130,6 +132,11 @@ const ChatSidebar = () => {
 
           const lm = c.lastMessageId as unknown as LastMessage;
 
+          const isLastMessageImg = c.lastMessageId?.type === "image";
+          // const lastMessageImg = isLastMessageImg
+          //   ? c.lastMessageId?.attachments?.[0]?.url
+          //   : null;
+
           const lastTimeRaw =
             (typeof lm === "object" && lm && (lm.updatedAt || lm.createdAt)) ||
             c.lastMessageAt ||
@@ -173,9 +180,20 @@ const ChatSidebar = () => {
                 </div>
 
                 <div className="flex items-center justify-between gap-3 mt-1">
-                  <p className="truncate text-xs text-dim">
-                    {c.lastMessageText}
-                  </p>
+                  {isLastMessageImg ? (
+                    // <Image
+                    //   src={lastMessageImg}
+                    //   alt={c.lastMessageText || "Image"}
+                    //   className="w-12 h-8 rounded-lg"
+                    //   height={8}
+                    //   width={12}
+                    // />
+                    <p className="truncate text-xs text-dim italic">FILE</p>
+                  ) : (
+                    <p className="truncate text-xs text-dim">
+                      {c.lastMessageText}
+                    </p>
+                  )}
 
                   {unread > 0 ? (
                     <span className="min-w-4.5 h-4.5 px-1 rounded-full bg-gold-gradient text-black text-[11px] font-semibold grid place-items-center">

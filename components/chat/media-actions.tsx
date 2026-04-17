@@ -16,6 +16,8 @@ type Props = {
 
   voiceDraft: VoiceDraft | null;
   setVoiceDraft: (v: VoiceDraft | null) => void;
+
+  onPreview: (url: string | null) => void;
 };
 
 function formatMs(ms: number) {
@@ -31,6 +33,7 @@ export default function ComposerMediaActions({
   setImgFile,
   voiceDraft,
   setVoiceDraft,
+  onPreview,
 }: Props) {
   // -------------------
   // Image picker
@@ -144,7 +147,7 @@ export default function ComposerMediaActions({
         <ImageIcon fontSize="small" />
       </button>
 
-      {recState !== "recording" ? (
+      {/*{recState !== "recording" ? (
         <button
           type="button"
           className="btn btn-ghost p-1.5 text-xs"
@@ -164,7 +167,7 @@ export default function ComposerMediaActions({
         >
           <Stop fontSize="small" />
         </button>
-      )}
+      )}*/}
 
       {/* lightweight previews + cancel */}
       {imgFile && (

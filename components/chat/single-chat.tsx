@@ -4,9 +4,8 @@
 import * as React from "react";
 import Link from "next/link";
 import { motion, AnimatePresence } from "framer-motion";
-import { ChevronLeft, Close, Telegram } from "@mui/icons-material";
+import { ChevronLeft, Telegram } from "@mui/icons-material";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import EmojiPicker, { EmojiClickData } from "emoji-picker-react";
 
 import useKeyboardOffset from "@/hooks/useKeyboardOffset";
 import { useChatById } from "@/hooks/useChatById";
@@ -33,6 +32,7 @@ import { uploadToCloudinary } from "@/lib/cloudinary/upload";
 import Image from "next/image";
 import { Avatar } from "./chat-sidebar";
 import toast from "react-hot-toast";
+import Modal from "../ui/modal";
 
 const bubbleBase =
   "max-w-[78%] rounded-2xl px-4 py-2 text-sm leading-relaxed border border-white/5 shadow-sm";
@@ -48,7 +48,7 @@ const ChatPane = ({ chatId }: { chatId: string; chat?: any }) => {
   const [openEmoji, setOpenEmoji] = React.useState(false);
   const [imgFile, setImgFile] = React.useState<File | null>(null);
   const [imgPreview, setImgPreview] = React.useState<string | null>(null);
-  const [sendingImage, setSendingImage] = React.useState(false);
+
   // out-of-order buffers
   const pendingDeliveredRef = React.useRef<Set<string>>(new Set());
   const pendingReadRef = React.useRef<Set<string>>(new Set());
@@ -770,14 +770,19 @@ const ChatPane = ({ chatId }: { chatId: string; chat?: any }) => {
                               m.attachments.map((a, i) => {
                                 if (a.kind === "image") {
                                   return (
-                                    <Image
+                                    <button
                                       key={i}
-                                      src={a.url}
-                                      alt={`attachment-${i}`}
-                                      className="max-h-60 rounded-lg object-cover"
-                                      height={240}
-                                      width={240}
-                                    />
+                                      className="cursor-pointer"
+                                      onClick={() => setImgPreview(a.url)}
+                                    >
+                                      <Image
+                                        src={a.url}
+                                        alt={`attachment-${i}`}
+                                        className="max-h-60 rounded-lg object-cover"
+                                        height={240}
+                                        width={240}
+                                      />
+                                    </button>
                                   );
                                 }
 
@@ -880,6 +885,7 @@ const ChatPane = ({ chatId }: { chatId: string; chat?: any }) => {
             setImgFile={setImgFile}
             voiceDraft={voiceDraft}
             setVoiceDraft={setVoiceDraft}
+            onPreview={setImgPreview}
           />
 
           {/* your textarea */}
@@ -957,6 +963,19 @@ const ChatPane = ({ chatId }: { chatId: string; chat?: any }) => {
         onClose={() => setOpenAddMembers(false)}
         defaulMembers={members}
       />
+
+      {imgPreview && (
+        <Modal onClose={() => setImgPreview(null)} open={!!imgPreview}>
+          <div className="w-full h-full min-h-100">
+            <Image
+              src={imgPreview}
+              alt="attachment"
+              className="rounded-lg object-contain"
+              fill
+            />
+          </div>
+        </Modal>
+      )}
     </div>
   );
 };
